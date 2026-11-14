@@ -52,6 +52,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
+    console.log(
+      "PDF debug: size=",
+      buffer.length,
+      "head=",
+      buffer.subarray(0, 16).toString("hex"),
+      "tail=",
+      buffer.subarray(-16).toString("hex")
+    );
     const text = await extractPdfText(buffer);
     if (!text.trim()) {
       return NextResponse.json(
