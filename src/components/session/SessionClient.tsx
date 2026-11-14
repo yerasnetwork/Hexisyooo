@@ -12,6 +12,7 @@ const FACE_CHECK_INTERVAL_MS = 45_000;
 const TAP_CHALLENGE_MIN_MS = 60_000;
 const TAP_CHALLENGE_MAX_MS = 120_000;
 const TAP_CHALLENGE_TIMEOUT_MS = 25_000;
+const CLIP_DURATION_MS = 12_000;
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -28,11 +29,13 @@ export function SessionClient({
   weekTitle,
   targetMinutes,
   verifiedMinutesSoFar,
+  isFamilyGoal = false,
 }: {
   goalId: string;
   weekTitle: string;
   targetMinutes: number;
   verifiedMinutesSoFar: number;
+  isFamilyGoal?: boolean;
 }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -40,6 +43,8 @@ export function SessionClient({
   const sessionIdRef = useRef<string | null>(null);
   const verifiedSecondsRef = useRef(0);
   const endingRef = useRef(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStartedRef = useRef(false);
 
   const [cameraState, setCameraState] = useState<CameraState>("requesting");
   const [presentNow, setPresentNow] = useState(true);
@@ -47,6 +52,7 @@ export function SessionClient({
   const [challengeRound, setChallengeRound] = useState(0);
   const [verifiedSeconds, setVerifiedSeconds] = useState(0);
   const [ending, setEnding] = useState(false);
+  const [recordingClip, setRecordingClip] = useState(false);
 
   const { state: detectorState, detectFace } = useFaceDetector();
 
@@ -82,6 +88,63 @@ export function SessionClient({
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
+
+  async function waitForSessionId(timeoutMs = 5000): Promise<string | null> {
+    const start = Date.now();
+    while (!sessionIdRef.current && Date.now() - start < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return sessionIdRef.current;
+  }
+
+  async function uploadClip(blob: Blob) {
+    const sessionId = await waitForSessionId();
+    if (!sessionId) return;
+    const form = new FormData();
+    form.append("sessionId", sessionId);
+    form.append("file", blob, "clip.webm");
+    fetch(`/api/goals/${goalId}/session/clip`, { method: "POST", body: form }).catch(() => {});
+  }
+
+  // Family mode only: record one short clip at the start of the session (not
+  // a continuous stream) so a parent can see their child actually reading.
+  useEffect(() => {
+    if (!isFamilyGoal || cameraState !== "granted" || recordingStartedRef.current) return;
+    const stream = streamRef.current;
+    if (!stream || typeof MediaRecorder === "undefined") return;
+    recordingStartedRef.current = true;
+
+    const mimeType = ["video/webm;codecs=vp8,opus", "video/webm"].find((t) =>
+      MediaRecorder.isTypeSupported(t)
+    );
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    } catch {
+      return;
+    }
+    recorderRef.current = recorder;
+    const chunks: Blob[] = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    recorder.onstop = () => {
+      setRecordingClip(false);
+      uploadClip(new Blob(chunks, { type: mimeType ?? "video/webm" }));
+    };
+
+    // Kicks off the clip recording as soon as the camera stream is ready.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRecordingClip(true);
+    recorder.start();
+    const stopHandle = setTimeout(() => {
+      if (recorder.state !== "inactive") recorder.stop();
+    }, CLIP_DURATION_MS);
+
+    return () => clearTimeout(stopHandle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFamilyGoal, cameraState]);
 
   // Periodic face-presence check (only meaningful once camera + detector are ready).
   useEffect(() => {
@@ -138,6 +201,9 @@ export function SessionClient({
     if (endingRef.current) return;
     endingRef.current = true;
     setEnding(true);
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop());
 
     const verifiedMinutes = Math.round(verifiedSecondsRef.current / 60);
@@ -209,6 +275,12 @@ export function SessionClient({
             </div>
           )}
         </div>
+        {recordingClip && (
+          <p className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-faint)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-danger)]" />
+            Recording a short clip for your parent…
+          </p>
+        )}
       </div>
 
       <div className="flex justify-center pb-4">

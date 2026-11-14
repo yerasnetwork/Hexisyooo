@@ -27,6 +27,13 @@ export type SessionRecord = {
   verifiedMinutes: number;
 };
 
+export type SessionClip = {
+  sessionId: string;
+  startedAt: string;
+  verifiedMinutes: number;
+  clipUrl: string;
+};
+
 export type GoalStatus = "active" | "completed";
 
 export type Goal = {
@@ -46,6 +53,10 @@ export type Goal = {
   status: GoalStatus;
   roomCode: string | null;
   nickname: string | null;
+  isFamily: boolean;
+  inviteCode: string | null;
+  childNickname: string | null;
+  childVisitorId: string | null;
   createdAt: string;
   weeks: WeekRecord[];
 };

@@ -15,6 +15,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
       weekTitle={currentWeek.title}
       targetMinutes={currentWeek.target_minutes}
       verifiedMinutesSoFar={currentWeek.verifiedMinutes}
+      isFamilyGoal={goal.isFamily}
     />
   );
 }

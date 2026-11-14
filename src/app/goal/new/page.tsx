@@ -33,6 +33,7 @@ function NewGoalForm() {
   const roomParam = searchParams.get("room");
   const [step, setStep] = useState<Step>("form");
   const [input, setInput] = useState<GoalSetupInput>(defaultInput);
+  const [isFamily, setIsFamily] = useState(false);
   const [plan, setPlan] = useState<WeekPlan[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
@@ -75,7 +76,7 @@ function NewGoalForm() {
       const res = await fetch("/api/goals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visitorId, input, plan: { weeks: plan } }),
+        body: JSON.stringify({ visitorId, input, plan: { weeks: plan }, isFamily }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create goal");
@@ -176,6 +177,24 @@ function NewGoalForm() {
                 </div>
               </Field>
 
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-3.5">
+                <input
+                  type="checkbox"
+                  checked={isFamily}
+                  onChange={(e) => setIsFamily(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[var(--color-accent)]"
+                />
+                <span>
+                  <span className="block text-sm font-medium">
+                    Set this goal for someone else (e.g. your child)
+                  </span>
+                  <span className="block text-xs text-[var(--color-text-faint)]">
+                    You fund it and watch their progress — they join with a code and do the
+                    reading. No account needed for either of you.
+                  </span>
+                </span>
+              </label>
+
               {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
 
               <Button type="submit" size="lg" disabled={loadingPlan} className="mt-2 w-full">
@@ -237,7 +256,11 @@ function NewGoalForm() {
                 disabled={step === "submitting"}
                 className="flex-1"
               >
-                {step === "submitting" ? "Locking it in…" : "Lock in my goal"}
+                {step === "submitting"
+                  ? "Locking it in…"
+                  : isFamily
+                    ? "Lock in & get invite code"
+                    : "Lock in my goal"}
               </Button>
             </div>
           </Card>

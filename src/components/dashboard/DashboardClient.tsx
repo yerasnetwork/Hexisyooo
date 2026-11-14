@@ -14,8 +14,10 @@ import {
   UsersIcon,
 } from "@/components/icons";
 import { computeCurrentStreak } from "@/lib/pool";
-import { rememberGoalId, setRoomNickname } from "@/lib/visitor";
-import type { Goal } from "@/lib/types";
+import { getVisitorId, rememberGoalId, setRoomNickname } from "@/lib/visitor";
+import type { Goal, SessionClip } from "@/lib/types";
+
+type FamilyRole = "owner" | "child";
 
 export function DashboardClient({
   goal: initialGoal,
@@ -27,13 +29,25 @@ export function DashboardClient({
   const [goal, setGoal] = useState(initialGoal);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Resolved post-mount from localStorage — defaults to the child-safe view
+  // (no money actions) until we know this browser created the goal.
+  const [familyRole, setFamilyRole] = useState<FamilyRole>("child");
 
   useEffect(() => {
     rememberGoalId(goal.id);
   }, [goal.id]);
 
+  useEffect(() => {
+    if (!goal.isFamily) return;
+    const visitorId = getVisitorId();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFamilyRole(visitorId === goal.visitorId ? "owner" : "child");
+  }, [goal.isFamily, goal.visitorId]);
+
   const currentWeek = goal.weeks.find((w) => w.week === goal.currentWeek) ?? goal.weeks[goal.weeks.length - 1];
   const streak = computeCurrentStreak(goal.weeks);
+  const isFamilyOwner = goal.isFamily && familyRole === "owner";
+  const isFamilyChild = goal.isFamily && familyRole === "child";
 
   async function withdraw() {
     setBusy("withdraw");
@@ -76,11 +90,18 @@ export function DashboardClient({
             <ShieldIcon width={16} height={16} className="text-[var(--color-accent)]" />
             Hexis
           </Link>
-          {goal.status === "completed" && (
-            <span className="rounded-full bg-[var(--color-accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--color-accent)]">
-              Goal complete
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {goal.isFamily && (
+              <span className="rounded-full bg-[var(--color-surface-raised)] px-3 py-1 text-xs font-semibold text-[var(--color-text-muted)]">
+                {isFamilyOwner ? "Family goal · parent view" : "Family goal"}
+              </span>
+            )}
+            {goal.status === "completed" && (
+              <span className="rounded-full bg-[var(--color-accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--color-accent)]">
+                Goal complete
+              </span>
+            )}
+          </div>
         </div>
 
         <div>
@@ -88,6 +109,7 @@ export function DashboardClient({
           <p className="mt-1 text-sm text-[var(--color-text-muted)]">
             {goal.durationWeeks}-week plan · {goal.sessionsPerWeek}x / week ·{" "}
             {goal.minutesPerSession} min / session
+            {isFamilyOwner && goal.childNickname && <> · read by {goal.childNickname}</>}
           </p>
         </div>
 
@@ -96,7 +118,7 @@ export function DashboardClient({
           <MoneyStat kind="locked" amount={goal.lockedBalance} label="Locked" />
         </div>
 
-        {goal.claimableBalance > 0 && (
+        {!isFamilyChild && goal.claimableBalance > 0 && (
           <Button variant="secondary" onClick={withdraw} disabled={busy === "withdraw"}>
             {busy === "withdraw" ? "Withdrawing…" : `Withdraw ${formatUsd(goal.claimableBalance)}`}
           </Button>
@@ -128,64 +150,161 @@ export function DashboardClient({
               <ProgressBar value={currentWeek.verifiedMinutes} max={currentWeek.target_minutes} />
             </div>
 
-            <LinkButton href={`/goal/${goal.id}/session`} size="lg">
-              Start reading session
-              <ArrowRightIcon width={18} height={18} />
-            </LinkButton>
+            {!isFamilyOwner && (
+              <LinkButton href={`/goal/${goal.id}/session`} size="lg">
+                Start reading session
+                <ArrowRightIcon width={18} height={18} />
+              </LinkButton>
+            )}
           </Card>
         )}
 
-        <Card>
-          <div className="mb-3 flex items-center gap-2">
-            <UsersIcon width={18} height={18} className="text-[var(--color-accent)]" />
-            <h2 className="text-base font-semibold">Leaderboard</h2>
-          </div>
-          {goal.roomCode ? (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-[var(--color-text-muted)]">
-                You&rsquo;re in room{" "}
-                <span className="font-mono font-semibold text-[var(--color-text)]">
-                  {goal.roomCode}
-                </span>{" "}
-                as {goal.nickname}
-              </p>
-              <LinkButton href={`/room/${goal.roomCode}`} variant="secondary">
-                View
-              </LinkButton>
+        {goal.isFamily ? (
+          isFamilyOwner && <FamilyOwnerPanel goal={goal} />
+        ) : (
+          <Card>
+            <div className="mb-3 flex items-center gap-2">
+              <UsersIcon width={18} height={18} className="text-[var(--color-accent)]" />
+              <h2 className="text-base font-semibold">Leaderboard</h2>
             </div>
-          ) : (
-            <RoomJoinForm
-              goalId={goal.id}
-              onJoined={setGoal}
-              initialRoomCode={prefillRoomCode}
-            />
-          )}
-        </Card>
+            {goal.roomCode ? (
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-[var(--color-text-muted)]">
+                  You&rsquo;re in room{" "}
+                  <span className="font-mono font-semibold text-[var(--color-text)]">
+                    {goal.roomCode}
+                  </span>{" "}
+                  as {goal.nickname}
+                </p>
+                <LinkButton href={`/room/${goal.roomCode}`} variant="secondary">
+                  View
+                </LinkButton>
+              </div>
+            ) : (
+              <RoomJoinForm
+                goalId={goal.id}
+                onJoined={setGoal}
+                initialRoomCode={prefillRoomCode}
+              />
+            )}
+          </Card>
+        )}
 
         <WeekTimeline goal={goal} />
 
         {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
 
-        <details className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]/60 p-4">
-          <summary className="cursor-pointer text-xs font-medium text-[var(--color-text-faint)]">
-            Demo controls
-          </summary>
-          <p className="mt-2 mb-3 text-xs text-[var(--color-text-faint)]">
-            For judging only — in production, weeks settle automatically on a schedule.
-          </p>
-          {goal.status === "active" && (
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={advanceWeek}
-              disabled={busy === "advance"}
-            >
-              {busy === "advance" ? "Settling…" : "Settle current week & advance (demo)"}
-            </Button>
-          )}
-        </details>
+        {!isFamilyChild && (
+          <details className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]/60 p-4">
+            <summary className="cursor-pointer text-xs font-medium text-[var(--color-text-faint)]">
+              Demo controls
+            </summary>
+            <p className="mt-2 mb-3 text-xs text-[var(--color-text-faint)]">
+              For judging only — in production, weeks settle automatically on a schedule.
+            </p>
+            {goal.status === "active" && (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={advanceWeek}
+                disabled={busy === "advance"}
+              >
+                {busy === "advance" ? "Settling…" : "Settle current week & advance (demo)"}
+              </Button>
+            )}
+          </details>
+        )}
       </div>
     </div>
+  );
+}
+
+function FamilyOwnerPanel({ goal }: { goal: Goal }) {
+  const [copied, setCopied] = useState(false);
+  const [clips, setClips] = useState<SessionClip[] | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/goals/${goal.id}/clips`)
+      .then((res) => res.json())
+      .then((data) => {
+        setClips(data.clips ?? []);
+      })
+      .catch(() => {
+        setClips([]);
+      });
+  }, [goal.id]);
+
+  function copyInviteLink() {
+    const url = `${window.location.origin}/family/join?code=${goal.inviteCode}`;
+    navigator.clipboard
+      ?.writeText(url)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {});
+  }
+
+  return (
+    <>
+      <Card>
+        <div className="mb-3 flex items-center gap-2">
+          <UsersIcon width={18} height={18} className="text-[var(--color-accent)]" />
+          <h2 className="text-base font-semibold">
+            {goal.childNickname ? `${goal.childNickname}'s invite` : "Invite your reader"}
+          </h2>
+        </div>
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-mono text-2xl font-semibold tracking-widest">{goal.inviteCode}</p>
+            <p className="mt-1 text-xs text-[var(--color-text-faint)]">
+              {goal.childNickname
+                ? `${goal.childNickname} has joined — this code still works if they need to rejoin on another device.`
+                : "Share this code (or the link) — no account needed to join."}
+            </p>
+          </div>
+          <Button variant="secondary" onClick={copyInviteLink}>
+            {copied ? "Copied!" : "Copy invite link"}
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="mb-3 text-base font-semibold">Reading sessions</h2>
+        {clips === null ? (
+          <p className="text-sm text-[var(--color-text-faint)]">Loading…</p>
+        ) : clips.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-faint)]">
+            No recorded sessions yet. A short clip appears here after each reading session.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {clips.map((clip) => (
+              <div key={clip.sessionId} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <video
+                  src={clip.clipUrl}
+                  controls
+                  className="h-32 w-48 rounded-lg border border-[var(--color-border)] bg-black object-cover"
+                />
+                <div className="text-sm">
+                  <p className="font-medium">
+                    {new Date(clip.startedAt).toLocaleString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                  <p className="text-[var(--color-text-muted)]">
+                    {clip.verifiedMinutes} min verified
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </>
   );
 }
 

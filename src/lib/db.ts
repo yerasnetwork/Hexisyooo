@@ -1,6 +1,15 @@
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseAdmin";
 import { computeCyclePool, computeWeeklyUnlockAmount, settleWeek } from "./pool";
-import type { Goal, GoalSetupInput, LeaderboardEntry, PlanResponse, WeekRecord } from "./types";
+import type {
+  Goal,
+  GoalSetupInput,
+  LeaderboardEntry,
+  PlanResponse,
+  SessionClip,
+  WeekRecord,
+} from "./types";
+
+const SESSION_CLIPS_BUCKET = "session-clips";
 
 // ---------------------------------------------------------------------------
 // In-memory fallback store. Used whenever Supabase env vars aren't set yet,
@@ -35,7 +44,8 @@ function weeksFromPlan(plan: PlanResponse): WeekRecord[] {
 export async function createGoal(
   visitorId: string,
   input: GoalSetupInput,
-  plan: PlanResponse
+  plan: PlanResponse,
+  isFamily = false
 ): Promise<Goal> {
   const carriedOverLocked = input.carriedOverLocked ?? 0;
   const cyclePool = computeCyclePool(carriedOverLocked, input.depositAmount);
@@ -59,6 +69,10 @@ export async function createGoal(
     status: "active",
     roomCode: null,
     nickname: null,
+    isFamily,
+    inviteCode: isFamily ? makeRoomCode() : null,
+    childNickname: null,
+    childVisitorId: null,
     createdAt: new Date().toISOString(),
     weeks,
   };
@@ -80,6 +94,8 @@ export async function createGoal(
       locked_balance: goal.lockedBalance,
       current_week: goal.currentWeek,
       status: goal.status,
+      is_family: goal.isFamily,
+      invite_code: goal.inviteCode,
       created_at: goal.createdAt,
     });
     if (goalError) throw new Error(goalError.message);
@@ -125,6 +141,10 @@ function rowsToGoal(goalRow: SupabaseGoalRow, weekRows: SupabaseWeekRow[]): Goal
     status: goalRow.status,
     roomCode: goalRow.room_code,
     nickname: goalRow.nickname,
+    isFamily: goalRow.is_family,
+    inviteCode: goalRow.invite_code,
+    childNickname: goalRow.child_nickname,
+    childVisitorId: goalRow.child_visitor_id,
     createdAt: goalRow.created_at,
     weeks: weekRows
       .sort((a, b) => a.week_number - b.week_number)
@@ -160,6 +180,10 @@ type SupabaseGoalRow = {
   status: "active" | "completed";
   room_code: string | null;
   nickname: string | null;
+  is_family: boolean;
+  invite_code: string | null;
+  child_nickname: string | null;
+  child_visitor_id: string | null;
   created_at: string;
 };
 
@@ -204,6 +228,8 @@ async function saveGoal(goal: Goal): Promise<void> {
         status: goal.status,
         room_code: goal.roomCode,
         nickname: goal.nickname,
+        child_nickname: goal.childNickname,
+        child_visitor_id: goal.childVisitorId,
       })
       .eq("id", goal.id);
     if (goalError) throw new Error(goalError.message);
@@ -323,6 +349,85 @@ export async function joinRoom(
   const currentWeek = goal.weeks.find((w) => w.week === goal.currentWeek);
   await upsertLeaderboardEntry(code, goal.visitorId, nickname, currentWeek?.verifiedMinutes ?? 0);
   return goal;
+}
+
+export async function joinFamilyGoal(
+  inviteCode: string,
+  nickname: string,
+  visitorId: string
+): Promise<Goal> {
+  const code = inviteCode.toUpperCase();
+  const admin = getSupabaseAdmin();
+  let goal: Goal | null;
+  if (admin) {
+    const { data: goalRow, error } = await admin
+      .from("goals")
+      .select("*")
+      .eq("invite_code", code)
+      .eq("is_family", true)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!goalRow) throw new Error("Invalid invite code");
+    const { data: weekRows, error: weeksError } = await admin
+      .from("weeks")
+      .select("*")
+      .eq("goal_id", goalRow.id);
+    if (weeksError) throw new Error(weeksError.message);
+    goal = rowsToGoal(goalRow as SupabaseGoalRow, (weekRows ?? []) as SupabaseWeekRow[]);
+  } else {
+    goal = [...memoryGoals.values()].find((g) => g.isFamily && g.inviteCode === code) ?? null;
+    if (!goal) throw new Error("Invalid invite code");
+  }
+
+  goal.childNickname = nickname;
+  goal.childVisitorId = visitorId;
+  await saveGoal(goal);
+  return goal;
+}
+
+export async function saveSessionClip(
+  goalId: string,
+  sessionId: string,
+  file: Buffer,
+  contentType: string
+): Promise<string | null> {
+  const admin = getSupabaseAdmin();
+  if (!admin) return null;
+
+  const path = `${goalId}/${sessionId}.webm`;
+  const { error: uploadError } = await admin.storage
+    .from(SESSION_CLIPS_BUCKET)
+    .upload(path, file, { contentType, upsert: true });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { error: updateError } = await admin
+    .from("sessions")
+    .update({ clip_path: path })
+    .eq("id", sessionId);
+  if (updateError) throw new Error(updateError.message);
+
+  return admin.storage.from(SESSION_CLIPS_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+export async function getSessionClips(goalId: string): Promise<SessionClip[]> {
+  const admin = getSupabaseAdmin();
+  if (!admin) return [];
+
+  const { data, error } = await admin
+    .from("sessions")
+    .select("id, started_at, verified_minutes, clip_path")
+    .eq("goal_id", goalId)
+    .not("clip_path", "is", null)
+    .order("started_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row) => ({
+    sessionId: row.id,
+    startedAt: row.started_at,
+    verifiedMinutes: Number(row.verified_minutes),
+    clipUrl: admin.storage.from(SESSION_CLIPS_BUCKET).getPublicUrl(row.clip_path as string).data
+      .publicUrl,
+  }));
 }
 
 async function upsertLeaderboardEntry(

@@ -10,6 +10,7 @@ import {
   UnlockIcon,
   UsersIcon,
 } from "@/components/icons";
+import Link from "next/link";
 
 const steps = [
   {
@@ -37,7 +38,15 @@ export default function Home() {
           <ShieldIcon className="text-[var(--color-accent)]" />
           <span className="font-semibold tracking-tight">Hexis</span>
         </div>
-        <ResumeBanner />
+        <div className="flex items-center gap-4">
+          <Link
+            href="/family/join"
+            className="text-sm text-[var(--color-text-faint)] hover:text-[var(--color-text)]"
+          >
+            Have a code?
+          </Link>
+          <ResumeBanner />
+        </div>
       </header>
 
       <main className="flex flex-1 flex-col items-center px-6 sm:px-10">
@@ -88,20 +97,32 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="w-full max-w-5xl pb-24">
-          <Card className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <section className="grid w-full max-w-5xl gap-5 pb-24 sm:grid-cols-2">
+          <Card className="flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <UsersIcon className="text-[var(--color-accent)]" />
-              <div>
-                <h3 className="text-base font-semibold">Read together, verified together</h3>
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  Share a room code with friends — the leaderboard ranks everyone by verified
-                  minutes this week, no accounts needed.
-                </p>
-              </div>
+              <h3 className="text-base font-semibold">Read together, verified together</h3>
             </div>
-            <LinkButton href="/goal/new" variant="secondary">
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Share a room code with friends — the leaderboard ranks everyone by verified minutes
+              this week, no accounts needed.
+            </p>
+            <LinkButton href="/goal/new" variant="secondary" className="self-start">
               Get started
+            </LinkButton>
+          </Card>
+          <Card className="flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <ShieldIcon className="text-[var(--color-accent)]" />
+              <h3 className="text-base font-semibold">Fund it for your kid, watch them read</h3>
+            </div>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Set up family mode: you fund the stake and watch verified progress and short
+              session clips. They join with a code and do the reading — no account for either of
+              you.
+            </p>
+            <LinkButton href="/goal/new" variant="secondary" className="self-start">
+              Set up a family goal
             </LinkButton>
           </Card>
         </section>

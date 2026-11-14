@@ -7,6 +7,7 @@ export async function POST(req: NextRequest) {
     visitorId?: string;
     input?: GoalSetupInput;
     plan?: PlanResponse;
+    isFamily?: boolean;
   };
 
   if (!body.visitorId || !body.input || !body.plan) {
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const goal = await createGoal(body.visitorId, body.input, body.plan);
+    const goal = await createGoal(body.visitorId, body.input, body.plan, body.isFamily ?? false);
     return NextResponse.json({ goal });
   } catch (err) {
     return NextResponse.json(
