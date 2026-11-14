@@ -26,6 +26,11 @@ export function settleWeek(
   return { met, unlockedAmount: met ? weeklyUnlockAmount : 0 };
 }
 
+/** Total sessions ever completed for this goal, used to index the next book chunk. */
+export function totalCompletedSessions(weeks: WeekRecord[]): number {
+  return weeks.reduce((sum, w) => sum + w.verifiedSessions, 0);
+}
+
 export function computeCurrentStreak(weeks: WeekRecord[]): number {
   let streak = 0;
   for (let i = weeks.length - 1; i >= 0; i--) {

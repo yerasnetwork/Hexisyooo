@@ -1,6 +1,7 @@
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseAdmin";
 import { computeCyclePool, computeWeeklyUnlockAmount, settleWeek } from "./pool";
 import type {
+  ContentSource,
   Goal,
   GoalSetupInput,
   LeaderboardEntry,
@@ -18,6 +19,7 @@ const SESSION_CLIPS_BUCKET = "session-clips";
 // ---------------------------------------------------------------------------
 const memoryGoals = new Map<string, Goal>();
 const memoryLeaderboard = new Map<string, LeaderboardEntry[]>();
+const memoryBookChunks = new Map<string, string[]>();
 
 function randomId(): string {
   return crypto.randomUUID();
@@ -45,8 +47,10 @@ export async function createGoal(
   visitorId: string,
   input: GoalSetupInput,
   plan: PlanResponse,
-  isFamily = false
+  options: { isFamily?: boolean; contentSource?: ContentSource } = {}
 ): Promise<Goal> {
+  const isFamily = options.isFamily ?? false;
+  const contentSource = options.contentSource ?? "skill";
   const carriedOverLocked = input.carriedOverLocked ?? 0;
   const cyclePool = computeCyclePool(carriedOverLocked, input.depositAmount);
   const weeklyUnlockAmount = computeWeeklyUnlockAmount(cyclePool, input.durationWeeks);
@@ -73,6 +77,7 @@ export async function createGoal(
     inviteCode: isFamily ? makeRoomCode() : null,
     childNickname: null,
     childVisitorId: null,
+    contentSource,
     createdAt: new Date().toISOString(),
     weeks,
   };
@@ -96,6 +101,7 @@ export async function createGoal(
       status: goal.status,
       is_family: goal.isFamily,
       invite_code: goal.inviteCode,
+      content_source: goal.contentSource,
       created_at: goal.createdAt,
     });
     if (goalError) throw new Error(goalError.message);
@@ -109,6 +115,7 @@ export async function createGoal(
         target_minutes: w.target_minutes,
         target_sessions: w.sessions,
         checkpoint: w.checkpoint,
+        content: w.content,
         verified_minutes: w.verifiedMinutes,
         verified_sessions: w.verifiedSessions,
         settled: w.settled,
@@ -145,6 +152,7 @@ function rowsToGoal(goalRow: SupabaseGoalRow, weekRows: SupabaseWeekRow[]): Goal
     inviteCode: goalRow.invite_code,
     childNickname: goalRow.child_nickname,
     childVisitorId: goalRow.child_visitor_id,
+    contentSource: goalRow.content_source,
     createdAt: goalRow.created_at,
     weeks: weekRows
       .sort((a, b) => a.week_number - b.week_number)
@@ -154,6 +162,7 @@ function rowsToGoal(goalRow: SupabaseGoalRow, weekRows: SupabaseWeekRow[]): Goal
         target_minutes: w.target_minutes,
         sessions: w.target_sessions,
         checkpoint: w.checkpoint ?? "",
+        content: w.content ?? "",
         id: w.id,
         verifiedMinutes: Number(w.verified_minutes),
         verifiedSessions: w.verified_sessions,
@@ -184,6 +193,7 @@ type SupabaseGoalRow = {
   invite_code: string | null;
   child_nickname: string | null;
   child_visitor_id: string | null;
+  content_source: ContentSource;
   created_at: string;
 };
 
@@ -194,6 +204,7 @@ type SupabaseWeekRow = {
   target_minutes: number;
   target_sessions: number;
   checkpoint: string | null;
+  content: string | null;
   verified_minutes: number;
   verified_sessions: number;
   settled: boolean;
@@ -428,6 +439,38 @@ export async function getSessionClips(goalId: string): Promise<SessionClip[]> {
     clipUrl: admin.storage.from(SESSION_CLIPS_BUCKET).getPublicUrl(row.clip_path as string).data
       .publicUrl,
   }));
+}
+
+export async function saveBookChunks(goalId: string, chunks: string[]): Promise<void> {
+  const admin = getSupabaseAdmin();
+  if (admin) {
+    const { error } = await admin.from("book_chunks").insert(
+      chunks.map((content, chunkIndex) => ({
+        goal_id: goalId,
+        chunk_index: chunkIndex,
+        content,
+      }))
+    );
+    if (error) throw new Error(error.message);
+    return;
+  }
+  memoryBookChunks.set(goalId, chunks);
+}
+
+export async function getBookChunk(goalId: string, chunkIndex: number): Promise<string | null> {
+  const admin = getSupabaseAdmin();
+  if (admin) {
+    const { data, error } = await admin
+      .from("book_chunks")
+      .select("content")
+      .eq("goal_id", goalId)
+      .eq("chunk_index", chunkIndex)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data?.content ?? null;
+  }
+  const chunks = memoryBookChunks.get(goalId) ?? [];
+  return chunks[chunkIndex] ?? null;
 }
 
 async function upsertLeaderboardEntry(

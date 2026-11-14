@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
@@ -10,6 +10,9 @@ import { getVisitorId, rememberGoalId } from "@/lib/visitor";
 import type { GoalSetupInput, PlanResponse, WeekPlan } from "@/lib/types";
 
 type Step = "form" | "review" | "submitting";
+type ContentMode = "skill" | "book";
+
+const MAX_PDF_BYTES = 4 * 1024 * 1024;
 
 const defaultInput: GoalSetupInput = {
   title: "",
@@ -31,21 +34,59 @@ function NewGoalForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const roomParam = searchParams.get("room");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [mode, setMode] = useState<ContentMode>("skill");
   const [step, setStep] = useState<Step>("form");
   const [input, setInput] = useState<GoalSetupInput>(defaultInput);
   const [isFamily, setIsFamily] = useState(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [plan, setPlan] = useState<WeekPlan[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loadingPlan, setLoadingPlan] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function handleGeneratePlan(e: React.FormEvent) {
+  function goToDashboard(goalId: string) {
+    rememberGoalId(goalId);
+    router.push(roomParam ? `/goal/${goalId}?room=${roomParam}` : `/goal/${goalId}`);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     if (!input.title.trim()) {
-      setError("Tell us what you're reading.");
+      setError(mode === "book" ? "Give your book a title." : "Tell us what you're learning.");
       return;
     }
-    setLoadingPlan(true);
+
+    if (mode === "book") {
+      if (!pdfFile) {
+        setError("Choose a PDF to upload.");
+        return;
+      }
+      setBusy(true);
+      try {
+        const form = new FormData();
+        form.append("visitorId", getVisitorId());
+        form.append("title", input.title);
+        form.append("durationWeeks", String(input.durationWeeks));
+        form.append("sessionsPerWeek", String(input.sessionsPerWeek));
+        form.append("minutesPerSession", String(input.minutesPerSession));
+        form.append("depositAmount", String(input.depositAmount));
+        form.append("isFamily", String(isFamily));
+        form.append("file", pdfFile);
+        const res = await fetch("/api/goals/book", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to create goal");
+        goToDashboard(data.goal.id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    setBusy(true);
     try {
       const res = await fetch("/api/plan", {
         method: "POST",
@@ -60,7 +101,7 @@ function NewGoalForm() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
-      setLoadingPlan(false);
+      setBusy(false);
     }
   }
 
@@ -80,11 +121,24 @@ function NewGoalForm() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create goal");
-      rememberGoalId(data.goal.id);
-      router.push(roomParam ? `/goal/${data.goal.id}?room=${roomParam}` : `/goal/${data.goal.id}`);
+      goToDashboard(data.goal.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setStep("review");
+    }
+  }
+
+  function handleFileChange(file: File | null) {
+    setError(null);
+    if (file && file.size > MAX_PDF_BYTES) {
+      setError("That PDF is too large — please choose one under 4 MB.");
+      setPdfFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    setPdfFile(file);
+    if (file && !input.title.trim()) {
+      setInput((v) => ({ ...v, title: file.name.replace(/\.pdf$/i, "") }));
     }
   }
 
@@ -102,20 +156,64 @@ function NewGoalForm() {
         {step === "form" && (
           <Card>
             <h1 className="mb-1 text-xl font-semibold">Set your goal</h1>
-            <p className="mb-6 text-sm text-[var(--color-text-muted)]">
-              We&rsquo;ll turn this into a week-by-week plan you can tweak before it&rsquo;s locked in.
+            <p className="mb-5 text-sm text-[var(--color-text-muted)]">
+              We&rsquo;ll turn this into a week-by-week plan you can tweak before it&rsquo;s locked
+              in.
             </p>
-            <form onSubmit={handleGeneratePlan} className="flex flex-col gap-5">
-              <Field label="What are you reading?" hint="A book title, or a topic you want to study.">
-                <input
-                  autoFocus
-                  value={input.title}
-                  onChange={(e) => setInput((v) => ({ ...v, title: e.target.value }))}
-                  placeholder="e.g. Atomic Habits"
-                  className={inputClass}
-                  maxLength={200}
-                />
-              </Field>
+
+            <div className="mb-6 grid grid-cols-2 gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-1">
+              <ModeTab active={mode === "skill"} onClick={() => setMode("skill")}>
+                Learn a skill
+              </ModeTab>
+              <ModeTab active={mode === "book"} onClick={() => setMode("book")}>
+                Upload a book (PDF)
+              </ModeTab>
+            </div>
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+              {mode === "skill" ? (
+                <Field
+                  label="What do you want to learn?"
+                  hint="A book title, or a topic you want to study."
+                >
+                  <input
+                    autoFocus
+                    value={input.title}
+                    onChange={(e) => setInput((v) => ({ ...v, title: e.target.value }))}
+                    placeholder="e.g. Atomic Habits"
+                    className={inputClass}
+                    maxLength={200}
+                  />
+                </Field>
+              ) : (
+                <>
+                  <Field label="Book title">
+                    <input
+                      value={input.title}
+                      onChange={(e) => setInput((v) => ({ ...v, title: e.target.value }))}
+                      placeholder="e.g. Dune"
+                      className={inputClass}
+                      maxLength={200}
+                    />
+                  </Field>
+                  <Field label="PDF file" hint="under 4 MB — text is extracted, nothing uploaded elsewhere">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
+                      className="block w-full text-sm text-[var(--color-text-muted)] file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-[var(--color-border-strong)] file:bg-[var(--color-surface-raised)] file:px-3 file:py-2 file:text-sm file:font-medium file:text-[var(--color-text)]"
+                    />
+                  </Field>
+                  {pdfFile && (
+                    <p className="text-xs text-[var(--color-text-faint)]">
+                      We&rsquo;ll split &ldquo;{pdfFile.name}&rdquo; into{" "}
+                      {input.durationWeeks * input.sessionsPerWeek} chunks — one per planned
+                      session.
+                    </p>
+                  )}
+                </>
+              )}
 
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <Field label="Duration" hint="weeks">
@@ -156,10 +254,7 @@ function NewGoalForm() {
                 </Field>
               </div>
 
-              <Field
-                label="Your stake"
-                hint="simulated dollars — no real payment, ever"
-              >
+              <Field label="Your stake" hint="simulated dollars — no real payment, ever">
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-faint)]">
                     $
@@ -197,10 +292,24 @@ function NewGoalForm() {
 
               {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
 
-              <Button type="submit" size="lg" disabled={loadingPlan} className="mt-2 w-full">
-                {loadingPlan ? "Generating your plan…" : "Generate my plan"}
-                {!loadingPlan && <ArrowRightIcon width={18} height={18} />}
+              <Button type="submit" size="lg" disabled={busy} className="mt-2 w-full">
+                {busy && (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#06240f]/30 border-t-[#06240f]" />
+                )}
+                {busy
+                  ? mode === "book"
+                    ? "Processing your PDF…"
+                    : "Generating your plan…"
+                  : mode === "book"
+                    ? "Create my goal"
+                    : "Generate my plan"}
+                {!busy && <ArrowRightIcon width={18} height={18} />}
               </Button>
+              {busy && mode === "skill" && (
+                <p className="-mt-2 text-center text-xs text-[var(--color-text-faint)]">
+                  Writing real material for each week can take up to 30 seconds.
+                </p>
+              )}
             </form>
           </Card>
         )}
@@ -238,7 +347,13 @@ function NewGoalForm() {
                   <input
                     value={week.checkpoint}
                     onChange={(e) => updateWeek(i, { checkpoint: e.target.value })}
-                    className={`${inputClass} text-sm text-[var(--color-text-muted)]`}
+                    className={`${inputClass} mb-2 text-sm text-[var(--color-text-muted)]`}
+                  />
+                  <textarea
+                    value={week.content}
+                    onChange={(e) => updateWeek(i, { content: e.target.value })}
+                    rows={3}
+                    className={`${inputClass} resize-y text-sm text-[var(--color-text-muted)]`}
                   />
                 </div>
               ))}
@@ -247,7 +362,11 @@ function NewGoalForm() {
             {error && <p className="mt-4 text-sm text-[var(--color-danger)]">{error}</p>}
 
             <div className="mt-6 flex gap-3">
-              <Button variant="secondary" onClick={() => setStep("form")} disabled={step === "submitting"}>
+              <Button
+                variant="secondary"
+                onClick={() => setStep("form")}
+                disabled={step === "submitting"}
+              >
                 Back
               </Button>
               <Button
@@ -290,5 +409,29 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+function ModeTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`cursor-pointer rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+        active
+          ? "bg-[var(--color-accent)] text-[#06240f]"
+          : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

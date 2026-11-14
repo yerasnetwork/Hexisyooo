@@ -15,7 +15,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const goal = await createGoal(body.visitorId, body.input, body.plan, body.isFamily ?? false);
+    const goal = await createGoal(body.visitorId, body.input, body.plan, {
+      isFamily: body.isFamily ?? false,
+    });
     return NextResponse.json({ goal });
   } catch (err) {
     return NextResponse.json(

@@ -91,6 +91,11 @@ export function DashboardClient({
             Hexis
           </Link>
           <div className="flex items-center gap-2">
+            {goal.contentSource === "book" && (
+              <span className="rounded-full bg-[var(--color-surface-raised)] px-3 py-1 text-xs font-semibold text-[var(--color-text-muted)]">
+                From your PDF
+              </span>
+            )}
             {goal.isFamily && (
               <span className="rounded-full bg-[var(--color-surface-raised)] px-3 py-1 text-xs font-semibold text-[var(--color-text-muted)]">
                 {isFamilyOwner ? "Family goal · parent view" : "Family goal"}

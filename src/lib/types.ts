@@ -4,6 +4,8 @@ export type WeekPlan = {
   target_minutes: number;
   sessions: number;
   checkpoint: string;
+  /** A passage to read or a short task list, sized to roughly fit target_minutes. */
+  content: string;
 };
 
 export type PlanResponse = {
@@ -34,6 +36,8 @@ export type SessionClip = {
   clipUrl: string;
 };
 
+export type ContentSource = "skill" | "book";
+
 export type GoalStatus = "active" | "completed";
 
 export type Goal = {
@@ -57,6 +61,7 @@ export type Goal = {
   inviteCode: string | null;
   childNickname: string | null;
   childVisitorId: string | null;
+  contentSource: ContentSource;
   createdAt: string;
   weeks: WeekRecord[];
 };

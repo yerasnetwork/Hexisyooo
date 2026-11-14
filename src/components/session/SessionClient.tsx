@@ -30,12 +30,16 @@ export function SessionClient({
   targetMinutes,
   verifiedMinutesSoFar,
   isFamilyGoal = false,
+  content = null,
+  isBookFinished = false,
 }: {
   goalId: string;
   weekTitle: string;
   targetMinutes: number;
   verifiedMinutesSoFar: number;
   isFamilyGoal?: boolean;
+  content?: string | null;
+  isBookFinished?: boolean;
 }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -234,6 +238,23 @@ export function SessionClient({
           {projectedTotal} / {targetMinutes} min target
         </span>
       </div>
+
+      {isBookFinished ? (
+        <div className="mt-4 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-4 text-sm text-[var(--color-text)]">
+          You&rsquo;ve finished this book! Spend this session reviewing what stuck with you most.
+        </div>
+      ) : (
+        content && (
+          <div className="mt-4 flex max-h-[38vh] flex-col overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+            <span className="mb-2 text-xs font-medium text-[var(--color-text-faint)]">
+              Today&rsquo;s material
+            </span>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text)]">
+              {content}
+            </p>
+          </div>
+        )
+      )}
 
       <div className="flex flex-1 flex-col items-center justify-center gap-6">
         <div
