@@ -2,9 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  // pdf-parse (via pdfjs-dist) loads a worker script by file path at
-  // runtime; bundling it breaks that path, so run it as plain Node code.
-  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],
+  // pdf-parse loads its vendored pdf.js build via a dynamic require() path;
+  // bundling it breaks that, so run it as plain Node code instead.
+  serverExternalPackages: ["pdf-parse"],
   turbopack: {
     rules: {
       "*.css": {

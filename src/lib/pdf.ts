@@ -1,13 +1,8 @@
-import { PDFParse } from "pdf-parse";
+import pdfParse from "pdf-parse";
 
 export async function extractPdfText(buffer: Buffer): Promise<string> {
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const result = await parser.getText({ pageJoiner: "" });
-    return result.text;
-  } finally {
-    await parser.destroy();
-  }
+  const result = await pdfParse(buffer);
+  return result.text;
 }
 
 /** Splits text into exactly `count` roughly-equal chunks by word count (no chapter awareness). */
