@@ -79,10 +79,11 @@ Output exactly this JSON shape:
 Produce one entry per week (${input.durationWeeks} total), progressing sensibly through the goal. All text in English.`;
 
   try {
+    // No `temperature` override: some models behind OpenAI-compatible
+    // endpoints (e.g. Claude via Anthropic's compat layer) reject it.
     const completion = await client.chat.completions.create({
       model,
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.4,
     });
     const raw = completion.choices[0]?.message?.content || "";
     let parsed: unknown;
@@ -95,7 +96,8 @@ Produce one entry per week (${input.durationWeeks} total), progressing sensibly 
       return parsed;
     }
     return fallbackPlan(input);
-  } catch {
+  } catch (err) {
+    console.error("AI plan generation failed, using fallback planner:", err);
     return fallbackPlan(input);
   }
 }
