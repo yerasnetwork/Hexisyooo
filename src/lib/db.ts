@@ -1,5 +1,6 @@
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseAdmin";
 import { computeCyclePool, computeWeeklyUnlockAmount, settleWeek } from "./pool";
+import type { BookSection } from "./pdf";
 import type {
   ContentSource,
   Goal,
@@ -19,7 +20,7 @@ const SESSION_CLIPS_BUCKET = "session-clips";
 // ---------------------------------------------------------------------------
 const memoryGoals = new Map<string, Goal>();
 const memoryLeaderboard = new Map<string, LeaderboardEntry[]>();
-const memoryBookChunks = new Map<string, string[]>();
+const memoryBookChunks = new Map<string, BookSection[]>();
 
 function randomId(): string {
   return crypto.randomUUID();
@@ -441,36 +442,55 @@ export async function getSessionClips(goalId: string): Promise<SessionClip[]> {
   }));
 }
 
-export async function saveBookChunks(goalId: string, chunks: string[]): Promise<void> {
+export async function saveBookChunks(goalId: string, sections: BookSection[]): Promise<void> {
   const admin = getSupabaseAdmin();
   if (admin) {
     const { error } = await admin.from("book_chunks").insert(
-      chunks.map((content, chunkIndex) => ({
+      sections.map((section, chunkIndex) => ({
         goal_id: goalId,
         chunk_index: chunkIndex,
-        content,
+        title: section.title,
+        content: section.content,
       }))
     );
     if (error) throw new Error(error.message);
     return;
   }
-  memoryBookChunks.set(goalId, chunks);
+  memoryBookChunks.set(goalId, sections);
 }
 
-export async function getBookChunk(goalId: string, chunkIndex: number): Promise<string | null> {
+export async function getBookChunk(
+  goalId: string,
+  chunkIndex: number
+): Promise<BookSection | null> {
   const admin = getSupabaseAdmin();
   if (admin) {
     const { data, error } = await admin
       .from("book_chunks")
-      .select("content")
+      .select("title, content")
       .eq("goal_id", goalId)
       .eq("chunk_index", chunkIndex)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    return data?.content ?? null;
+    return data ? { title: data.title, content: data.content } : null;
   }
   const chunks = memoryBookChunks.get(goalId) ?? [];
   return chunks[chunkIndex] ?? null;
+}
+
+/** All section titles in order, for the dashboard's reading-plan list. */
+export async function getBookSectionTitles(goalId: string): Promise<string[]> {
+  const admin = getSupabaseAdmin();
+  if (admin) {
+    const { data, error } = await admin
+      .from("book_chunks")
+      .select("title")
+      .eq("goal_id", goalId)
+      .order("chunk_index", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => row.title);
+  }
+  return (memoryBookChunks.get(goalId) ?? []).map((s) => s.title);
 }
 
 async function upsertLeaderboardEntry(

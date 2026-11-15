@@ -13,7 +13,7 @@ import {
   ShieldIcon,
   UsersIcon,
 } from "@/components/icons";
-import { computeCurrentStreak } from "@/lib/pool";
+import { computeCurrentStreak, totalCompletedSessions } from "@/lib/pool";
 import { getVisitorId, rememberGoalId, setRoomNickname } from "@/lib/visitor";
 import type { Goal, SessionClip } from "@/lib/types";
 
@@ -32,10 +32,21 @@ export function DashboardClient({
   // Resolved post-mount from localStorage — defaults to the child-safe view
   // (no money actions) until we know this browser created the goal.
   const [familyRole, setFamilyRole] = useState<FamilyRole>("child");
+  // Book goals derive their real section titles from the uploaded PDF
+  // (independent of week count); skill goals' weeks already are the sections.
+  const [bookSectionTitles, setBookSectionTitles] = useState<string[] | null>(null);
 
   useEffect(() => {
     rememberGoalId(goal.id);
   }, [goal.id]);
+
+  useEffect(() => {
+    if (goal.contentSource !== "book") return;
+    fetch(`/api/goals/${goal.id}/sections`)
+      .then((res) => res.json())
+      .then((data) => setBookSectionTitles(data.titles ?? []))
+      .catch(() => setBookSectionTitles([]));
+  }, [goal.id, goal.contentSource]);
 
   useEffect(() => {
     if (!goal.isFamily) return;
@@ -48,6 +59,12 @@ export function DashboardClient({
   const streak = computeCurrentStreak(goal.weeks);
   const isFamilyOwner = goal.isFamily && familyRole === "owner";
   const isFamilyChild = goal.isFamily && familyRole === "child";
+
+  const completedSections = totalCompletedSessions(goal.weeks);
+  const sectionTitles =
+    goal.contentSource === "book" ? bookSectionTitles : goal.weeks.map((w) => w.title);
+  const totalSections = sectionTitles?.length ?? 0;
+  const currentSectionTitle = sectionTitles?.[completedSections];
 
   async function withdraw() {
     setBusy("withdraw");
@@ -133,7 +150,9 @@ export function DashboardClient({
           <Card className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-[var(--color-text-faint)]">
-                Week {currentWeek.week} of {goal.durationWeeks}
+                {totalSections > 0
+                  ? `Section ${Math.min(completedSections + 1, totalSections)} of ${totalSections}`
+                  : `Week ${currentWeek.week} of ${goal.durationWeeks}`}
               </span>
               {streak > 0 && (
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-warn)]">
@@ -142,7 +161,7 @@ export function DashboardClient({
                 </span>
               )}
             </div>
-            <h2 className="text-lg font-semibold">{currentWeek.title}</h2>
+            <h2 className="text-lg font-semibold">{currentSectionTitle ?? currentWeek.title}</h2>
             <p className="text-sm text-[var(--color-text-muted)]">{currentWeek.checkpoint}</p>
 
             <div>
@@ -162,6 +181,10 @@ export function DashboardClient({
               </LinkButton>
             )}
           </Card>
+        )}
+
+        {sectionTitles && sectionTitles.length > 0 && (
+          <ReadingPlanCard titles={sectionTitles} completedCount={completedSections} />
         )}
 
         {goal.isFamily ? (
@@ -310,6 +333,41 @@ function FamilyOwnerPanel({ goal }: { goal: Goal }) {
         )}
       </Card>
     </>
+  );
+}
+
+function ReadingPlanCard({
+  titles,
+  completedCount,
+}: {
+  titles: string[];
+  completedCount: number;
+}) {
+  return (
+    <Card>
+      <h2 className="mb-3 text-base font-semibold">Reading plan</h2>
+      <div className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
+        {titles.map((title, i) => (
+          <div
+            key={i}
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm ${
+              i === completedCount
+                ? "border-[var(--color-accent)]/40 bg-[var(--color-accent-soft)]"
+                : "border-[var(--color-border)] bg-transparent"
+            }`}
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center font-mono text-xs text-[var(--color-text-faint)]">
+              {i < completedCount ? (
+                <CheckIcon width={14} height={14} className="text-[var(--color-accent)]" />
+              ) : (
+                i + 1
+              )}
+            </span>
+            <span className="truncate">{title}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 

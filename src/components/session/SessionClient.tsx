@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/Button";
-import { BookIcon, CameraIcon, CheckIcon, ShieldIcon } from "@/components/icons";
+import { CameraIcon, CheckIcon } from "@/components/icons";
 import { useFaceDetector } from "@/lib/useFaceDetector";
 
 type CameraState = "requesting" | "granted" | "denied";
@@ -24,30 +24,26 @@ function formatClock(totalSeconds: number): string {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
-/** Splits into paragraph/list blocks on blank lines, preserving line breaks within each block. */
-function splitContentBlocks(text: string): string[] {
-  return text
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-}
-
 export function SessionClient({
   goalId,
-  weekTitle,
+  sectionTitle,
+  sectionIndex,
+  totalSections,
   targetMinutes,
   verifiedMinutesSoFar,
   isFamilyGoal = false,
-  content = null,
+  paragraphs,
   isBookFinished = false,
   checkpoint,
 }: {
   goalId: string;
-  weekTitle: string;
+  sectionTitle: string;
+  sectionIndex: number;
+  totalSections: number;
   targetMinutes: number;
   verifiedMinutesSoFar: number;
   isFamilyGoal?: boolean;
-  content?: string | null;
+  paragraphs: string[];
   isBookFinished?: boolean;
   checkpoint: string;
 }) {
@@ -260,94 +256,118 @@ export function SessionClient({
   const totalVerifiedThisSession = Math.floor(verifiedSeconds / 60);
   const projectedTotal = verifiedMinutesSoFar + totalVerifiedThisSession;
 
+  const presence = tapChallenge
+    ? { label: "Confirm presence", tone: "warn" as const }
+    : presentNow
+      ? { label: "Present", tone: "accent" as const }
+      : { label: "Away", tone: "warn" as const };
+
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--color-bg)] px-6 py-6 sm:px-10">
-      <div className="flex items-center justify-between">
-        <span className="inline-flex items-center gap-2 text-sm text-[var(--color-text-faint)]">
-          <ShieldIcon width={16} height={16} className="text-[var(--color-accent)]" />
-          {weekTitle}
-        </span>
-        <span className="font-mono text-xs text-[var(--color-text-faint)]">
-          {projectedTotal} / {targetMinutes} min target
-        </span>
+    <div className="flex min-h-screen flex-col bg-[var(--color-bg)]">
+      {/* Slim top bar: section context, presence, timer, end session — stays
+          out of the way of the reading itself. */}
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg)]/95 px-4 py-3 backdrop-blur sm:px-8">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-[var(--color-text)]">{sectionTitle}</p>
+          <p className="font-mono text-xs text-[var(--color-text-faint)]">
+            Section {sectionIndex} of {totalSections}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              presence.tone === "accent"
+                ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                : "bg-[var(--color-warn)]/15 text-[var(--color-warn)]"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                presence.tone === "accent" ? "bg-[var(--color-accent)]" : "bg-[var(--color-warn)]"
+              }`}
+            />
+            {presence.label}
+          </span>
+          <span className="font-mono text-sm tabular-nums text-[var(--color-text)]">
+            {formatClock(verifiedSeconds)}
+          </span>
+          <span className="hidden font-mono text-xs text-[var(--color-text-faint)] sm:inline">
+            / {targetMinutes} min ({projectedTotal} so far)
+          </span>
+          <Button variant="secondary" size="md" onClick={requestEndSession} disabled={ending}>
+            {ending ? "Saving…" : "End session"}
+          </Button>
+        </div>
       </div>
 
-      {isBookFinished ? (
-        <div className="mt-4 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-4 text-sm text-[var(--color-text)]">
-          You&rsquo;ve finished this book! Spend this session reviewing what stuck with you most.
-        </div>
-      ) : (
-        content && (
-          <div className="mt-4 flex max-h-[48vh] flex-col overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 sm:p-8">
-            <div className="mb-5 flex items-center gap-2">
-              <BookIcon width={18} height={18} className="text-[var(--color-accent)]" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-faint)]">
-                Today&rsquo;s material
-              </span>
-            </div>
-            <div className="flex flex-col gap-4 text-base leading-7 text-[var(--color-text)]">
-              {splitContentBlocks(content).map((block, i) => (
-                <p key={i} className="whitespace-pre-wrap">
-                  {block}
-                </p>
-              ))}
-            </div>
-          </div>
-        )
-      )}
-
-      <div className="flex flex-1 flex-col items-center justify-center gap-6">
+      {/* The book page — the hero of the screen. Extra bottom padding keeps
+          the fixed webcam thumbnail from sitting over the last lines. */}
+      <div className="flex flex-1 justify-center px-4 pb-28 pt-10 sm:px-8 sm:pb-32 sm:pt-14">
         <div
-          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-300 ${
-            presentNow && !tapChallenge
-              ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
-              : "bg-[var(--color-warn)]/15 text-[var(--color-warn)]"
-          }`}
+          className="w-full max-w-[720px] rounded-sm bg-[var(--color-paper)] px-7 py-12 shadow-[0_24px_60px_rgba(0,0,0,0.5)] sm:px-16 sm:py-16"
+          style={{ fontFamily: "var(--font-serif)" }}
         >
-          {tapChallenge
-            ? "Quick check — tap below to confirm you're still here"
-            : presentNow
-              ? "We can see you — timer running"
-              : "We can't see you — come back!"}
-        </div>
-
-        <div className="font-mono text-7xl font-semibold tabular-nums sm:text-8xl">
-          {formatClock(verifiedSeconds)}
-        </div>
-        <p className="text-sm text-[var(--color-text-muted)]">Verified reading time this session</p>
-
-        <div className="relative h-40 w-52 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
-          {cameraState === "granted" ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="h-full w-full object-cover [transform:scaleX(-1)]"
-            />
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 px-3 text-center">
-              <CameraIcon width={22} height={22} className="text-[var(--color-text-faint)]" />
-              <p className="text-xs text-[var(--color-text-faint)]">
-                {cameraState === "requesting"
-                  ? "Requesting camera…"
-                  : "Camera unavailable — we'll use periodic taps to verify you're here."}
+          {isBookFinished ? (
+            <div className="text-center">
+              <p className="mb-3 font-sans text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-paper-muted)]">
+                The end
+              </p>
+              <h1 className="text-3xl font-semibold text-[var(--color-paper-ink)] sm:text-4xl">
+                You&rsquo;ve finished this book!
+              </h1>
+              <p className="mt-4 text-lg leading-relaxed text-[var(--color-paper-ink)]/80">
+                Spend this session reviewing what stuck with you most.
               </p>
             </div>
+          ) : (
+            <>
+              <p className="mb-2 font-sans text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-paper-muted)]">
+                Section {sectionIndex} of {totalSections}
+              </p>
+              <h1 className="mb-10 text-3xl font-semibold leading-tight text-[var(--color-paper-ink)] sm:text-4xl">
+                {sectionTitle}
+              </h1>
+              <div className="text-[20px] leading-[1.75] text-[var(--color-paper-ink)] sm:text-[22px]">
+                {paragraphs.map((p, i) => (
+                  <p
+                    key={i}
+                    className={`mb-6 last:mb-0 ${
+                      i === 0
+                        ? "first-letter:float-left first-letter:mr-2 first-letter:mt-1 first-letter:text-[4.2rem] first-letter:leading-[0.8] first-letter:font-semibold"
+                        : ""
+                    }`}
+                  >
+                    {p}
+                  </p>
+                ))}
+              </div>
+            </>
           )}
         </div>
-        {recordingClip && (
-          <p className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-faint)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-danger)]" />
-            Recording a short clip for your parent…
-          </p>
-        )}
       </div>
 
-      <div className="flex justify-center pb-4">
-        <Button variant="secondary" size="lg" onClick={requestEndSession} disabled={ending}>
-          {ending ? "Saving…" : "End session"}
-        </Button>
+      {/* Small, always-mounted webcam thumbnail so face detection keeps running. */}
+      <div className="fixed bottom-3 right-3 z-20 h-16 w-14 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-md)] sm:bottom-4 sm:right-4 sm:h-28 sm:w-24">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={`h-full w-full object-cover [transform:scaleX(-1)] ${
+            cameraState === "granted" ? "" : "hidden"
+          }`}
+        />
+        {cameraState !== "granted" && (
+          <div className="flex h-full flex-col items-center justify-center gap-1 px-1 text-center">
+            <CameraIcon width={16} height={16} className="text-[var(--color-text-faint)]" />
+            <p className="text-[9px] leading-tight text-[var(--color-text-faint)]">
+              {cameraState === "requesting" ? "Requesting…" : "Using taps instead"}
+            </p>
+          </div>
+        )}
+        {recordingClip && (
+          <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--color-danger)]" />
+        )}
       </div>
 
       {endGateOpen && (

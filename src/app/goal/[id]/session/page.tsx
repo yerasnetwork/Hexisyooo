@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
-import { getBookChunk, getGoal } from "@/lib/db";
+import { getBookChunk, getBookSectionTitles, getGoal } from "@/lib/db";
 import { totalCompletedSessions } from "@/lib/pool";
+import { paragraphize } from "@/lib/text";
 import { SessionClient } from "@/components/session/SessionClient";
 
 export default async function SessionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -10,20 +11,38 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
   const currentWeek = goal.weeks.find((w) => w.week === goal.currentWeek);
   if (!goal || goal.status !== "active" || !currentWeek) notFound();
 
-  const content =
-    goal.contentSource === "book"
-      ? await getBookChunk(goal.id, totalCompletedSessions(goal.weeks))
-      : currentWeek.content || null;
+  let sectionTitle = currentWeek.title;
+  let sectionIndex = currentWeek.week;
+  let totalSections = goal.durationWeeks;
+  let content: string | null = currentWeek.content || null;
+  let isBookFinished = false;
+
+  if (goal.contentSource === "book") {
+    const completed = totalCompletedSessions(goal.weeks);
+    const [chunk, titles] = await Promise.all([
+      getBookChunk(goal.id, completed),
+      getBookSectionTitles(goal.id),
+    ]);
+    totalSections = titles.length;
+    sectionIndex = completed + 1;
+    isBookFinished = chunk === null;
+    sectionTitle = chunk?.title ?? "You've finished this book!";
+    content = chunk?.content ?? null;
+  }
+
+  const paragraphs = content ? paragraphize(content) : [];
 
   return (
     <SessionClient
       goalId={goal.id}
-      weekTitle={currentWeek.title}
+      sectionTitle={sectionTitle}
+      sectionIndex={sectionIndex}
+      totalSections={totalSections}
       targetMinutes={currentWeek.target_minutes}
       verifiedMinutesSoFar={currentWeek.verifiedMinutes}
       isFamilyGoal={goal.isFamily}
-      content={content}
-      isBookFinished={goal.contentSource === "book" && content === null}
+      paragraphs={paragraphs}
+      isBookFinished={isBookFinished}
       checkpoint={currentWeek.checkpoint}
     />
   );

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildDeterministicPlan } from "@/lib/ai/generatePlan";
+import { buildFinancialWeekSkeleton } from "@/lib/ai/generatePlan";
 import { createGoal, saveBookChunks } from "@/lib/db";
-import { extractPdfText, splitIntoChunks } from "@/lib/pdf";
+import { buildBookSections, extractPdfText } from "@/lib/pdf";
 import type { GoalSetupInput } from "@/lib/types";
 
 // Vercel Functions cap request bodies at 4.5 MB; leave headroom for the rest
@@ -60,12 +60,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const totalSessions = input.durationWeeks * input.sessionsPerWeek;
-    const chunks = splitIntoChunks(text, totalSessions);
+    const sections = buildBookSections(text);
+    if (sections.length === 0) {
+      return NextResponse.json(
+        { error: "Couldn't find any readable sentences in that PDF." },
+        { status: 422 }
+      );
+    }
 
-    const plan = buildDeterministicPlan(input);
+    const plan = buildFinancialWeekSkeleton(input);
     const goal = await createGoal(visitorId, input, plan, { isFamily, contentSource: "book" });
-    await saveBookChunks(goal.id, chunks);
+    await saveBookChunks(goal.id, sections);
 
     return NextResponse.json({ goal });
   } catch (err) {

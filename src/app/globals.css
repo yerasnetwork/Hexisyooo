@@ -25,6 +25,12 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
+
+  /* Warm paper surface for the book-style reading page — intentionally the
+     one light surface in an otherwise dark app, like a page under a lamp. */
+  --color-paper: #f3ead9;
+  --color-paper-ink: #2b2318;
+  --color-paper-muted: #8a7a5c;
 }
 
 @theme inline {
@@ -44,8 +50,12 @@
   --color-warn: var(--color-warn);
   --color-danger: var(--color-danger);
   --color-danger-soft: var(--color-danger-soft);
+  --color-paper: var(--color-paper);
+  --color-paper-ink: var(--color-paper-ink);
+  --color-paper-muted: var(--color-paper-muted);
   --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-mono), ui-monospace, monospace;
+  --font-serif: var(--font-serif), ui-serif, Georgia, serif;
 }
 
 body {

@@ -207,9 +207,9 @@ function NewGoalForm() {
                   </Field>
                   {pdfFile && (
                     <p className="text-xs text-[var(--color-text-faint)]">
-                      We&rsquo;ll split &ldquo;{pdfFile.name}&rdquo; into{" "}
-                      {input.durationWeeks * input.sessionsPerWeek} chunks — one per planned
-                      session.
+                      We&rsquo;ll split &ldquo;{pdfFile.name}&rdquo; into natural,
+                      sentence-complete sections sized for a comfortable read — the number of
+                      sections depends on the book&rsquo;s length, not your session settings.
                     </p>
                   )}
                 </>
