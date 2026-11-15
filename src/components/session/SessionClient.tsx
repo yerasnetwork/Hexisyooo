@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/Button";
-import { CameraIcon, CheckIcon, ShieldIcon } from "@/components/icons";
+import { BookIcon, CameraIcon, CheckIcon, ShieldIcon } from "@/components/icons";
 import { useFaceDetector } from "@/lib/useFaceDetector";
 
 type CameraState = "requesting" | "granted" | "denied";
@@ -24,6 +24,14 @@ function formatClock(totalSeconds: number): string {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Splits into paragraph/list blocks on blank lines, preserving line breaks within each block. */
+function splitContentBlocks(text: string): string[] {
+  return text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
 export function SessionClient({
   goalId,
   weekTitle,
@@ -32,6 +40,7 @@ export function SessionClient({
   isFamilyGoal = false,
   content = null,
   isBookFinished = false,
+  checkpoint,
 }: {
   goalId: string;
   weekTitle: string;
@@ -40,6 +49,7 @@ export function SessionClient({
   isFamilyGoal?: boolean;
   content?: string | null;
   isBookFinished?: boolean;
+  checkpoint: string;
 }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -49,6 +59,7 @@ export function SessionClient({
   const endingRef = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingStartedRef = useRef(false);
+  const autoPromptShownRef = useRef(false);
 
   const [cameraState, setCameraState] = useState<CameraState>("requesting");
   const [presentNow, setPresentNow] = useState(true);
@@ -57,6 +68,8 @@ export function SessionClient({
   const [verifiedSeconds, setVerifiedSeconds] = useState(0);
   const [ending, setEnding] = useState(false);
   const [recordingClip, setRecordingClip] = useState(false);
+  const [endGateOpen, setEndGateOpen] = useState(false);
+  const [checkpointAnswer, setCheckpointAnswer] = useState("");
 
   const { state: detectorState, detectFace } = useFaceDetector();
 
@@ -201,8 +214,28 @@ export function SessionClient({
     return () => clearInterval(interval);
   }, [cameraState, presentNow, tapChallenge]);
 
-  async function endSession() {
-    if (endingRef.current) return;
+  // Once the target is hit, prompt the checkpoint once — the user can still
+  // dismiss it and keep reading; manually clicking "End session" always
+  // opens the same gate regardless of this auto-prompt.
+  useEffect(() => {
+    if (autoPromptShownRef.current || tapChallenge || targetMinutes <= 0) return;
+    if (verifiedSeconds >= targetMinutes * 60) {
+      autoPromptShownRef.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEndGateOpen(true);
+    }
+  }, [verifiedSeconds, targetMinutes, tapChallenge]);
+
+  function requestEndSession() {
+    setEndGateOpen(true);
+  }
+
+  function dismissEndGate() {
+    setEndGateOpen(false);
+  }
+
+  async function finishSession() {
+    if (!checkpointAnswer.trim() || endingRef.current) return;
     endingRef.current = true;
     setEnding(true);
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
@@ -245,13 +278,20 @@ export function SessionClient({
         </div>
       ) : (
         content && (
-          <div className="mt-4 flex max-h-[38vh] flex-col overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-            <span className="mb-2 text-xs font-medium text-[var(--color-text-faint)]">
-              Today&rsquo;s material
-            </span>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text)]">
-              {content}
-            </p>
+          <div className="mt-4 flex max-h-[48vh] flex-col overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 sm:p-8">
+            <div className="mb-5 flex items-center gap-2">
+              <BookIcon width={18} height={18} className="text-[var(--color-accent)]" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-faint)]">
+                Today&rsquo;s material
+              </span>
+            </div>
+            <div className="flex flex-col gap-4 text-base leading-7 text-[var(--color-text)]">
+              {splitContentBlocks(content).map((block, i) => (
+                <p key={i} className="whitespace-pre-wrap">
+                  {block}
+                </p>
+              ))}
+            </div>
           </div>
         )
       )}
@@ -305,12 +345,48 @@ export function SessionClient({
       </div>
 
       <div className="flex justify-center pb-4">
-        <Button variant="secondary" size="lg" onClick={endSession} disabled={ending}>
+        <Button variant="secondary" size="lg" onClick={requestEndSession} disabled={ending}>
           {ending ? "Saving…" : "End session"}
         </Button>
       </div>
 
-      {tapChallenge && (
+      {endGateOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)]">
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-faint)]">
+                Before you finish
+              </p>
+              <p className="text-base font-medium">
+                {checkpoint || "Summarize what you focused on this session in a sentence or two."}
+              </p>
+            </div>
+            <textarea
+              autoFocus
+              value={checkpointAnswer}
+              onChange={(e) => setCheckpointAnswer(e.target.value)}
+              disabled={ending}
+              rows={4}
+              placeholder="Type your answer…"
+              className="w-full resize-none rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-3 py-2.5 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
+            />
+            <div className="flex gap-3">
+              <Button variant="secondary" onClick={dismissEndGate} disabled={ending} className="flex-1">
+                Keep reading
+              </Button>
+              <Button
+                onClick={finishSession}
+                disabled={!checkpointAnswer.trim() || ending}
+                className="flex-1"
+              >
+                {ending ? "Saving…" : "Finish session"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tapChallenge && !endGateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-[var(--shadow-lg)]">
             <p className="text-base font-medium">Still reading?</p>

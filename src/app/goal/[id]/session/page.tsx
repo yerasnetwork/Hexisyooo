@@ -24,6 +24,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
       isFamilyGoal={goal.isFamily}
       content={content}
       isBookFinished={goal.contentSource === "book" && content === null}
+      checkpoint={currentWeek.checkpoint}
     />
   );
 }
