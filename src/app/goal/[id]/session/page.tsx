@@ -38,8 +38,8 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
       sectionTitle={sectionTitle}
       sectionIndex={sectionIndex}
       totalSections={totalSections}
-      targetMinutes={currentWeek.target_minutes}
-      verifiedMinutesSoFar={currentWeek.verifiedMinutes}
+      targetSeconds={currentWeek.target_seconds}
+      verifiedSecondsSoFar={currentWeek.verifiedSeconds}
       isFamilyGoal={goal.isFamily}
       paragraphs={paragraphs}
       isBookFinished={isBookFinished}

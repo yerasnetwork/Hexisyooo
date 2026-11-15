@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, LinkButton } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { ShieldIcon, UsersIcon } from "@/components/icons";
+import { formatDuration } from "@/lib/text";
 import { getRememberedGoalIds, getRoomNickname, setRoomNickname } from "@/lib/visitor";
 import type { LeaderboardEntry } from "@/lib/types";
 
@@ -123,7 +124,7 @@ export function RoomClient({ roomCode }: { roomCode: string }) {
                     <span className="text-sm font-medium">{entry.nickname}</span>
                   </span>
                   <span className="font-mono text-sm tabular-nums text-[var(--color-text-muted)]">
-                    {entry.verifiedMinutesWeek} min
+                    {formatDuration(entry.verifiedSecondsWeek)}
                   </span>
                 </li>
               ))}

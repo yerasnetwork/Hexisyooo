@@ -9,17 +9,23 @@ export async function POST(req: NextRequest) {
     !body.title ||
     !body.durationWeeks ||
     !body.sessionsPerWeek ||
-    !body.minutesPerSession ||
+    !body.secondsPerSession ||
     body.depositAmount === undefined
   ) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+  if (body.secondsPerSession <= 0) {
+    return NextResponse.json(
+      { error: "Session length must be greater than 0." },
+      { status: 400 }
+    );
   }
 
   const input: GoalSetupInput = {
     title: String(body.title).slice(0, 200),
     durationWeeks: Math.max(1, Math.min(52, Number(body.durationWeeks))),
     sessionsPerWeek: Math.max(1, Math.min(14, Number(body.sessionsPerWeek))),
-    minutesPerSession: Math.max(5, Math.min(240, Number(body.minutesPerSession))),
+    secondsPerSession: Math.max(1, Math.min(240 * 60, Number(body.secondsPerSession))),
     depositAmount: Math.max(0, Number(body.depositAmount)),
     carriedOverLocked: body.carriedOverLocked ? Math.max(0, Number(body.carriedOverLocked)) : 0,
   };

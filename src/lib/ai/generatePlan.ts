@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { deriveTitleFromText, ensureUniqueTitles } from "../text";
+import { deriveTitleFromText, ensureUniqueTitles, formatDuration } from "../text";
 import type { GoalSetupInput, PlanResponse, WeekPlan } from "../types";
 
 function extractJson(raw: string): string {
@@ -21,7 +21,7 @@ function isValidPlan(value: unknown): value is PlanResponse {
       typeof w === "object" &&
       typeof (w as WeekPlan).week === "number" &&
       typeof (w as WeekPlan).title === "string" &&
-      typeof (w as WeekPlan).target_minutes === "number" &&
+      typeof (w as WeekPlan).target_seconds === "number" &&
       typeof (w as WeekPlan).sessions === "number" &&
       typeof (w as WeekPlan).checkpoint === "string"
   );
@@ -50,7 +50,7 @@ export function buildFinancialWeekSkeleton(input: GoalSetupInput): PlanResponse 
   const weeks: WeekPlan[] = Array.from({ length: input.durationWeeks }, (_, i) => ({
     week: i + 1,
     title: `Week ${i + 1}`,
-    target_minutes: input.sessionsPerWeek * input.minutesPerSession,
+    target_seconds: input.sessionsPerWeek * input.secondsPerSession,
     sessions: input.sessionsPerWeek,
     checkpoint: "Summarize the main idea of what you read this week in 1-2 sentences.",
     content: "",
@@ -78,7 +78,7 @@ export function buildDeterministicPlan(input: GoalSetupInput): PlanResponse {
     return {
       week: weekNum,
       title: deriveTitleFromText(content),
-      target_minutes: input.sessionsPerWeek * input.minutesPerSession,
+      target_seconds: input.sessionsPerWeek * input.secondsPerSession,
       sessions: input.sessionsPerWeek,
       checkpoint: `Summarize what you focused on this session in 1-2 sentences.`,
       content,
@@ -107,20 +107,20 @@ export async function generatePlan(input: GoalSetupInput): Promise<PlanResponse>
   }
 
   const model = process.env.AI_MODEL || "meta/llama-3.1-8b-instruct";
-  const targetMinutes = input.sessionsPerWeek * input.minutesPerSession;
+  const targetSeconds = input.sessionsPerWeek * input.secondsPerSession;
   const prompt = `You are a reading/learning coach. Create a week-by-week plan as STRICT JSON only (no prose, no markdown fences).
 
 Goal: "${input.title}"
 Duration: ${input.durationWeeks} weeks
 Sessions per week: ${input.sessionsPerWeek}
-Minutes per session: ${input.minutesPerSession}
+Session length: ${formatDuration(input.secondsPerSession)} (minutes:seconds)
 
-Each week needs real content to engage with during the session, not just a one-line checkpoint — either a short written passage to read, or a short numbered list of hands-on tasks. Keep it to roughly 150-250 words total (or 3-5 short tasks) — enough to fill part of a ${targetMinutes}-minute session, not an exhaustive lesson.
+Each week needs real content to engage with during the session, not just a one-line checkpoint — either a short written passage to read, or a short numbered list of hands-on tasks. Keep it to roughly 150-250 words total (or 3-5 short tasks) — enough to fill part of a ${formatDuration(targetSeconds)} session, not an exhaustive lesson.
 
 The "title" field is critical: it must be a short, specific phrase drawn directly from that week's own content — e.g. naming the actual concept, chapter, or task covered that week. Never use a generic template like "Week 1: Getting started", "Building momentum", or "Finishing strong" — those say nothing about the content and are not acceptable. No two weeks may share the same title; each must be unique and clearly describe what makes that week different from the others.
 
 Output exactly this JSON shape:
-{"weeks": [{"week": 1, "title": "...", "target_minutes": ${targetMinutes}, "sessions": ${input.sessionsPerWeek}, "checkpoint": "one short comprehension question or micro-task", "content": "the actual passage to read or numbered task list for this week"}]}
+{"weeks": [{"week": 1, "title": "...", "target_seconds": ${targetSeconds}, "sessions": ${input.sessionsPerWeek}, "checkpoint": "one short comprehension question or micro-task", "content": "the actual passage to read or numbered task list for this week"}]}
 
 Produce one entry per week (${input.durationWeeks} total), progressing sensibly through the goal. All text in English.`;
 

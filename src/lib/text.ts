@@ -1,3 +1,11 @@
+/** Formats seconds as "M:SS" (e.g. 45 -> "0:45", 180 -> "3:00"). */
+export function formatDuration(totalSeconds: number): string {
+  const safe = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 /** Crude but effective sentence splitter for plain extracted text. */
 export function splitSentences(text: string): string[] {
   const normalized = text.replace(/\s+/g, " ").trim();

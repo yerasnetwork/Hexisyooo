@@ -22,7 +22,7 @@ export function settleWeek(
   week: WeekRecord,
   weeklyUnlockAmount: number
 ): { met: boolean; unlockedAmount: number } {
-  const met = week.verifiedMinutes >= week.target_minutes;
+  const met = week.verifiedSeconds >= week.target_seconds;
   return { met, unlockedAmount: met ? weeklyUnlockAmount : 0 };
 }
 

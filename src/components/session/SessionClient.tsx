@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/Button";
 import { CameraIcon, CheckIcon } from "@/components/icons";
+import { formatDuration } from "@/lib/text";
 import { useFaceDetector } from "@/lib/useFaceDetector";
 
 type CameraState = "requesting" | "granted" | "denied";
@@ -29,8 +30,8 @@ export function SessionClient({
   sectionTitle,
   sectionIndex,
   totalSections,
-  targetMinutes,
-  verifiedMinutesSoFar,
+  targetSeconds,
+  verifiedSecondsSoFar,
   isFamilyGoal = false,
   paragraphs,
   isBookFinished = false,
@@ -40,8 +41,8 @@ export function SessionClient({
   sectionTitle: string;
   sectionIndex: number;
   totalSections: number;
-  targetMinutes: number;
-  verifiedMinutesSoFar: number;
+  targetSeconds: number;
+  verifiedSecondsSoFar: number;
   isFamilyGoal?: boolean;
   paragraphs: string[];
   isBookFinished?: boolean;
@@ -66,6 +67,8 @@ export function SessionClient({
   const [recordingClip, setRecordingClip] = useState(false);
   const [endGateOpen, setEndGateOpen] = useState(false);
   const [checkpointAnswer, setCheckpointAnswer] = useState("");
+  const [checkpointError, setCheckpointError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
 
   const { state: detectorState, detectFace } = useFaceDetector();
 
@@ -214,13 +217,13 @@ export function SessionClient({
   // dismiss it and keep reading; manually clicking "End session" always
   // opens the same gate regardless of this auto-prompt.
   useEffect(() => {
-    if (autoPromptShownRef.current || tapChallenge || targetMinutes <= 0) return;
-    if (verifiedSeconds >= targetMinutes * 60) {
+    if (autoPromptShownRef.current || tapChallenge || targetSeconds <= 0) return;
+    if (verifiedSeconds >= targetSeconds) {
       autoPromptShownRef.current = true;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setEndGateOpen(true);
     }
-  }, [verifiedSeconds, targetMinutes, tapChallenge]);
+  }, [verifiedSeconds, targetSeconds, tapChallenge]);
 
   function requestEndSession() {
     setEndGateOpen(true);
@@ -232,29 +235,49 @@ export function SessionClient({
 
   async function finishSession() {
     if (!checkpointAnswer.trim() || endingRef.current) return;
+    setCheckpointError(null);
     endingRef.current = true;
     setEnding(true);
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      recorderRef.current.stop();
-    }
-    streamRef.current?.getTracks().forEach((t) => t.stop());
 
-    const verifiedMinutes = Math.round(verifiedSecondsRef.current / 60);
     try {
+      let unlockedAmount = 0;
       if (sessionIdRef.current) {
-        await fetch(`/api/goals/${goalId}/session/end`, {
+        const res = await fetch(`/api/goals/${goalId}/session/end`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId: sessionIdRef.current, verifiedMinutes }),
+          body: JSON.stringify({
+            sessionId: sessionIdRef.current,
+            verifiedSeconds: verifiedSecondsRef.current,
+            checkpointAnswer,
+          }),
         });
+        const data = await res.json();
+        if (!res.ok || data.passed === false) {
+          setCheckpointError(data.feedback || "That doesn't look related to what you read — try again.");
+          endingRef.current = false;
+          setEnding(false);
+          return;
+        }
+        unlockedAmount = Number(data.unlockedAmount ?? 0);
       }
-    } finally {
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      setConfirmation(
+        unlockedAmount > 0
+          ? `Verified ✓ +$${unlockedAmount.toFixed(2)} unlocked`
+          : "Verified ✓ Session saved"
+      );
+      setTimeout(() => router.push(`/goal/${goalId}`), 1300);
+    } catch {
+      // Never block the user on a network hiccup — the server already
+      // falls back to accepting a non-empty answer if its own AI call fails.
       router.push(`/goal/${goalId}`);
     }
   }
 
-  const totalVerifiedThisSession = Math.floor(verifiedSeconds / 60);
-  const projectedTotal = verifiedMinutesSoFar + totalVerifiedThisSession;
+  const projectedTotal = verifiedSecondsSoFar + verifiedSeconds;
 
   const presence = tapChallenge
     ? { label: "Confirm presence", tone: "warn" as const }
@@ -292,7 +315,7 @@ export function SessionClient({
             {formatClock(verifiedSeconds)}
           </span>
           <span className="hidden font-mono text-xs text-[var(--color-text-faint)] sm:inline">
-            / {targetMinutes} min ({projectedTotal} so far)
+            {formatDuration(projectedTotal)} / {formatDuration(targetSeconds)}
           </span>
           <Button variant="secondary" size="md" onClick={requestEndSession} disabled={ending}>
             {ending ? "Saving…" : "End session"}
@@ -390,6 +413,9 @@ export function SessionClient({
               placeholder="Type your answer…"
               className="w-full resize-none rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-bg)] px-3 py-2.5 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
             />
+            {checkpointError && (
+              <p className="text-sm text-[var(--color-danger)]">{checkpointError}</p>
+            )}
             <div className="flex gap-3">
               <Button variant="secondary" onClick={dismissEndGate} disabled={ending} className="flex-1">
                 Keep reading
@@ -406,7 +432,15 @@ export function SessionClient({
         </div>
       )}
 
-      {tapChallenge && !endGateOpen && (
+      {confirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="rounded-2xl border border-[var(--color-accent)]/40 bg-[var(--color-accent-soft)] px-8 py-6 text-center text-lg font-semibold text-[var(--color-accent)] shadow-[var(--shadow-lg)]">
+            {confirmation}
+          </div>
+        </div>
+      )}
+
+      {tapChallenge && !endGateOpen && !confirmation && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center shadow-[var(--shadow-lg)]">
             <p className="text-base font-medium">Still reading?</p>

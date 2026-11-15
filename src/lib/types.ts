@@ -1,10 +1,10 @@
 export type WeekPlan = {
   week: number;
   title: string;
-  target_minutes: number;
+  target_seconds: number;
   sessions: number;
   checkpoint: string;
-  /** A passage to read or a short task list, sized to roughly fit target_minutes. */
+  /** A passage to read or a short task list, sized to roughly fit target_seconds. */
   content: string;
 };
 
@@ -14,7 +14,7 @@ export type PlanResponse = {
 
 export type WeekRecord = WeekPlan & {
   id: string;
-  verifiedMinutes: number;
+  verifiedSeconds: number;
   verifiedSessions: number;
   settled: boolean;
   unlockedAmount: number;
@@ -26,13 +26,13 @@ export type SessionRecord = {
   weekId: string;
   startedAt: string;
   endedAt: string | null;
-  verifiedMinutes: number;
+  verifiedSeconds: number;
 };
 
 export type SessionClip = {
   sessionId: string;
   startedAt: string;
-  verifiedMinutes: number;
+  verifiedSeconds: number;
   clipUrl: string;
 };
 
@@ -46,7 +46,7 @@ export type Goal = {
   title: string;
   durationWeeks: number;
   sessionsPerWeek: number;
-  minutesPerSession: number;
+  secondsPerSession: number;
   depositAmount: number;
   carriedOverLocked: number;
   cyclePool: number;
@@ -70,7 +70,7 @@ export type GoalSetupInput = {
   title: string;
   durationWeeks: number;
   sessionsPerWeek: number;
-  minutesPerSession: number;
+  secondsPerSession: number;
   depositAmount: number;
   carriedOverLocked?: number;
 };
@@ -79,6 +79,6 @@ export type LeaderboardEntry = {
   roomCode: string;
   visitorId: string;
   nickname: string;
-  verifiedMinutesWeek: number;
+  verifiedSecondsWeek: number;
   updatedAt: string;
 };

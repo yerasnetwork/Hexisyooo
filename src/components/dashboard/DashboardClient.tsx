@@ -14,6 +14,7 @@ import {
   UsersIcon,
 } from "@/components/icons";
 import { computeCurrentStreak, totalCompletedSessions } from "@/lib/pool";
+import { formatDuration } from "@/lib/text";
 import { getVisitorId, rememberGoalId, setRoomNickname } from "@/lib/visitor";
 import type { Goal, SessionClip } from "@/lib/types";
 
@@ -130,7 +131,7 @@ export function DashboardClient({
           <h1 className="text-2xl font-semibold tracking-tight">{goal.title}</h1>
           <p className="mt-1 text-sm text-[var(--color-text-muted)]">
             {goal.durationWeeks}-week plan · {goal.sessionsPerWeek}x / week ·{" "}
-            {goal.minutesPerSession} min / session
+            {formatDuration(goal.secondsPerSession)} / session
             {isFamilyOwner && goal.childNickname && <> · read by {goal.childNickname}</>}
           </p>
         </div>
@@ -168,10 +169,10 @@ export function DashboardClient({
               <div className="mb-1.5 flex items-baseline justify-between text-sm">
                 <span className="text-[var(--color-text-muted)]">Verified this week</span>
                 <span className="font-mono tabular-nums">
-                  {currentWeek.verifiedMinutes} / {currentWeek.target_minutes} min
+                  {formatDuration(currentWeek.verifiedSeconds)} / {formatDuration(currentWeek.target_seconds)}
                 </span>
               </div>
-              <ProgressBar value={currentWeek.verifiedMinutes} max={currentWeek.target_minutes} />
+              <ProgressBar value={currentWeek.verifiedSeconds} max={currentWeek.target_seconds} />
             </div>
 
             {!isFamilyOwner && (
@@ -324,7 +325,7 @@ function FamilyOwnerPanel({ goal }: { goal: Goal }) {
                     })}
                   </p>
                   <p className="text-[var(--color-text-muted)]">
-                    {clip.verifiedMinutes} min verified
+                    {formatDuration(clip.verifiedSeconds)} verified
                   </p>
                 </div>
               </div>
@@ -400,7 +401,7 @@ function WeekTimeline({ goal }: { goal: Goal }) {
               )
             ) : (
               <span className="text-xs text-[var(--color-text-faint)]">
-                {w.verifiedMinutes}/{w.target_minutes} min
+                {formatDuration(w.verifiedSeconds)}/{formatDuration(w.target_seconds)}
               </span>
             )}
           </div>

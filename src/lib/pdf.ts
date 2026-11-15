@@ -9,7 +9,7 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
 
 export type BookSection = { title: string; content: string };
 
-const TARGET_WORDS_PER_SECTION = 650;
+const WORDS_PER_MINUTE = 180; // average silent reading pace, used to size sections
 const MIN_SECTIONS = 1;
 const MAX_SECTIONS = 60;
 
@@ -18,17 +18,19 @@ const MAX_SECTIONS = 60;
  * sized from the material's own length — not a fixed count derived from the
  * plan's duration/sessions inputs. Each section's title is derived from its
  * own text (a detected heading-like first line, or its opening sentence).
+ * Section size follows reading pace: a shorter session means a smaller chunk.
  */
-export function buildBookSections(text: string): BookSection[] {
+export function buildBookSections(text: string, secondsPerSession: number): BookSection[] {
   const sentences = splitSentences(text);
   if (sentences.length === 0) return [];
 
   const totalWords = text.split(/\s+/).filter(Boolean).length;
+  const paceWordsPerSection = Math.max(40, Math.round((secondsPerSession / 60) * WORDS_PER_MINUTE));
   const estimatedSections = Math.max(
     MIN_SECTIONS,
-    Math.min(MAX_SECTIONS, Math.round(totalWords / TARGET_WORDS_PER_SECTION))
+    Math.min(MAX_SECTIONS, Math.round(totalWords / paceWordsPerSection))
   );
-  const targetWordsPerSection = Math.max(150, Math.round(totalWords / estimatedSections));
+  const targetWordsPerSection = Math.max(40, Math.round(totalWords / estimatedSections));
 
   const blocks: string[] = [];
   let current: string[] = [];

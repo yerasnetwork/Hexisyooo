@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { ArrowRightIcon, BookIcon, ShieldIcon } from "@/components/icons";
+import { formatDuration } from "@/lib/text";
 import { getVisitorId, rememberGoalId } from "@/lib/visitor";
 import type { GoalSetupInput, PlanResponse, WeekPlan } from "@/lib/types";
 
@@ -18,7 +19,7 @@ const defaultInput: GoalSetupInput = {
   title: "",
   durationWeeks: 4,
   sessionsPerWeek: 3,
-  minutesPerSession: 25,
+  secondsPerSession: 25 * 60,
   depositAmount: 20,
 };
 
@@ -70,7 +71,7 @@ function NewGoalForm() {
         form.append("title", input.title);
         form.append("durationWeeks", String(input.durationWeeks));
         form.append("sessionsPerWeek", String(input.sessionsPerWeek));
-        form.append("minutesPerSession", String(input.minutesPerSession));
+        form.append("secondsPerSession", String(input.secondsPerSession));
         form.append("depositAmount", String(input.depositAmount));
         form.append("isFamily", String(isFamily));
         form.append("file", pdfFile);
@@ -215,7 +216,7 @@ function NewGoalForm() {
                 </>
               )}
 
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <Field label="Duration" hint="weeks">
                   <input
                     type="number"
@@ -243,12 +244,32 @@ function NewGoalForm() {
                 <Field label="Minutes" hint="per session">
                   <input
                     type="number"
-                    min={5}
+                    min={0}
                     max={240}
-                    value={input.minutesPerSession}
-                    onChange={(e) =>
-                      setInput((v) => ({ ...v, minutesPerSession: Number(e.target.value) }))
-                    }
+                    value={Math.floor(input.secondsPerSession / 60)}
+                    onChange={(e) => {
+                      const minutes = Math.max(0, Math.min(240, Number(e.target.value) || 0));
+                      setInput((v) => ({
+                        ...v,
+                        secondsPerSession: minutes * 60 + (v.secondsPerSession % 60),
+                      }));
+                    }}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Seconds" hint="per session">
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={input.secondsPerSession % 60}
+                    onChange={(e) => {
+                      const seconds = Math.max(0, Math.min(59, Number(e.target.value) || 0));
+                      setInput((v) => ({
+                        ...v,
+                        secondsPerSession: Math.floor(v.secondsPerSession / 60) * 60 + seconds,
+                      }));
+                    }}
                     className={inputClass}
                   />
                 </Field>
@@ -336,7 +357,7 @@ function NewGoalForm() {
                       Week {week.week}
                     </span>
                     <span className="text-xs text-[var(--color-text-faint)]">
-                      {week.target_minutes} min target
+                      {formatDuration(week.target_seconds)} target
                     </span>
                   </div>
                   <input

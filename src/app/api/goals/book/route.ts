@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const title = form.get("title");
   const durationWeeks = Number(form.get("durationWeeks"));
   const sessionsPerWeek = Number(form.get("sessionsPerWeek"));
-  const minutesPerSession = Number(form.get("minutesPerSession"));
+  const secondsPerSession = Number(form.get("secondsPerSession"));
   const depositAmount = Number(form.get("depositAmount"));
   const isFamily = form.get("isFamily") === "true";
   const file = form.get("file");
@@ -30,10 +30,16 @@ export async function POST(req: NextRequest) {
   if (
     !Number.isFinite(durationWeeks) ||
     !Number.isFinite(sessionsPerWeek) ||
-    !Number.isFinite(minutesPerSession) ||
+    !Number.isFinite(secondsPerSession) ||
     !Number.isFinite(depositAmount)
   ) {
     return NextResponse.json({ error: "Invalid plan settings" }, { status: 400 });
+  }
+  if (secondsPerSession <= 0) {
+    return NextResponse.json(
+      { error: "Session length must be greater than 0." },
+      { status: 400 }
+    );
   }
   if (file.size > MAX_PDF_BYTES) {
     return NextResponse.json(
@@ -46,7 +52,7 @@ export async function POST(req: NextRequest) {
     title: title.slice(0, 200),
     durationWeeks: Math.max(1, Math.min(52, durationWeeks)),
     sessionsPerWeek: Math.max(1, Math.min(14, sessionsPerWeek)),
-    minutesPerSession: Math.max(5, Math.min(240, minutesPerSession)),
+    secondsPerSession: Math.max(1, Math.min(240 * 60, secondsPerSession)),
     depositAmount: Math.max(0, depositAmount),
   };
 
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const sections = buildBookSections(text);
+    const sections = buildBookSections(text, input.secondsPerSession);
     if (sections.length === 0) {
       return NextResponse.json(
         { error: "Couldn't find any readable sentences in that PDF." },

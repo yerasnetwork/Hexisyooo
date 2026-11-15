@@ -37,7 +37,7 @@ function weeksFromPlan(plan: PlanResponse): WeekRecord[] {
   return plan.weeks.map((w) => ({
     ...w,
     id: randomId(),
-    verifiedMinutes: 0,
+    verifiedSeconds: 0,
     verifiedSessions: 0,
     settled: false,
     unlockedAmount: 0,
@@ -63,7 +63,7 @@ export async function createGoal(
     title: input.title,
     durationWeeks: input.durationWeeks,
     sessionsPerWeek: input.sessionsPerWeek,
-    minutesPerSession: input.minutesPerSession,
+    secondsPerSession: input.secondsPerSession,
     depositAmount: input.depositAmount,
     carriedOverLocked,
     cyclePool,
@@ -91,7 +91,7 @@ export async function createGoal(
       title: goal.title,
       duration_weeks: goal.durationWeeks,
       sessions_per_week: goal.sessionsPerWeek,
-      minutes_per_session: goal.minutesPerSession,
+      minutes_per_session: goal.secondsPerSession,
       deposit_amount: goal.depositAmount,
       carried_over_locked: goal.carriedOverLocked,
       cycle_pool: goal.cyclePool,
@@ -113,11 +113,11 @@ export async function createGoal(
         goal_id: goal.id,
         week_number: w.week,
         title: w.title,
-        target_minutes: w.target_minutes,
+        target_minutes: w.target_seconds,
         target_sessions: w.sessions,
         checkpoint: w.checkpoint,
         content: w.content,
-        verified_minutes: w.verifiedMinutes,
+        verified_minutes: w.verifiedSeconds,
         verified_sessions: w.verifiedSessions,
         settled: w.settled,
         unlocked_amount: w.unlockedAmount,
@@ -138,7 +138,7 @@ function rowsToGoal(goalRow: SupabaseGoalRow, weekRows: SupabaseWeekRow[]): Goal
     title: goalRow.title,
     durationWeeks: goalRow.duration_weeks,
     sessionsPerWeek: goalRow.sessions_per_week,
-    minutesPerSession: goalRow.minutes_per_session,
+    secondsPerSession: goalRow.minutes_per_session,
     depositAmount: Number(goalRow.deposit_amount),
     carriedOverLocked: Number(goalRow.carried_over_locked),
     cyclePool: Number(goalRow.cycle_pool),
@@ -160,12 +160,12 @@ function rowsToGoal(goalRow: SupabaseGoalRow, weekRows: SupabaseWeekRow[]): Goal
       .map((w) => ({
         week: w.week_number,
         title: w.title,
-        target_minutes: w.target_minutes,
+        target_seconds: w.target_minutes,
         sessions: w.target_sessions,
         checkpoint: w.checkpoint ?? "",
         content: w.content ?? "",
         id: w.id,
-        verifiedMinutes: Number(w.verified_minutes),
+        verifiedSeconds: Number(w.verified_minutes),
         verifiedSessions: w.verified_sessions,
         settled: w.settled,
         unlockedAmount: Number(w.unlocked_amount),
@@ -173,6 +173,8 @@ function rowsToGoal(goalRow: SupabaseGoalRow, weekRows: SupabaseWeekRow[]): Goal
   };
 }
 
+// DB column names below are legacy ("minutes") but now store seconds — no
+// migration was done for this rename, only the application-level unit.
 type SupabaseGoalRow = {
   id: string;
   visitor_id: string;
@@ -250,7 +252,7 @@ async function saveGoal(goal: Goal): Promise<void> {
       const { error: weekError } = await admin
         .from("weeks")
         .update({
-          verified_minutes: w.verifiedMinutes,
+          verified_minutes: w.verifiedSeconds,
           verified_sessions: w.verifiedSessions,
           settled: w.settled,
           unlocked_amount: w.unlockedAmount,
@@ -286,21 +288,36 @@ export async function startSession(goalId: string): Promise<{ sessionId: string;
 export async function endSession(
   goalId: string,
   sessionId: string,
-  verifiedMinutes: number
-): Promise<Goal> {
+  verifiedSeconds: number
+): Promise<{ goal: Goal; unlockedAmount: number }> {
   const goal = await getGoal(goalId);
   if (!goal) throw new Error("Goal not found");
   const week = goal.weeks.find((w) => w.week === goal.currentWeek);
   if (!week) throw new Error("Current week not found");
 
-  week.verifiedMinutes += verifiedMinutes;
+  week.verifiedSeconds += verifiedSeconds;
   week.verifiedSessions += 1;
+
+  // Settle (unlock) the current week as soon as its target is actually met,
+  // instead of only via the separate manual "advance week" control. Reuses
+  // the existing settleWeek math unchanged.
+  let unlockedAmount = 0;
+  if (!week.settled && week.verifiedSeconds >= week.target_seconds) {
+    const { met, unlockedAmount: amount } = settleWeek(week, goal.weeklyUnlockAmount);
+    week.settled = true;
+    week.unlockedAmount = amount;
+    if (met) {
+      goal.claimableBalance += amount;
+      goal.lockedBalance -= amount;
+      unlockedAmount = amount;
+    }
+  }
 
   const admin = getSupabaseAdmin();
   if (admin) {
     const { error } = await admin
       .from("sessions")
-      .update({ ended_at: new Date().toISOString(), verified_minutes: verifiedMinutes })
+      .update({ ended_at: new Date().toISOString(), verified_minutes: verifiedSeconds })
       .eq("id", sessionId);
     if (error) throw new Error(error.message);
   }
@@ -308,10 +325,10 @@ export async function endSession(
   await saveGoal(goal);
 
   if (goal.roomCode) {
-    await bumpLeaderboardMinutes(goal.roomCode, goal.visitorId, verifiedMinutes);
+    await bumpLeaderboardSeconds(goal.roomCode, goal.visitorId, verifiedSeconds);
   }
 
-  return goal;
+  return { goal, unlockedAmount };
 }
 
 export async function advanceWeek(goalId: string): Promise<Goal> {
@@ -359,7 +376,7 @@ export async function joinRoom(
   await saveGoal(goal);
 
   const currentWeek = goal.weeks.find((w) => w.week === goal.currentWeek);
-  await upsertLeaderboardEntry(code, goal.visitorId, nickname, currentWeek?.verifiedMinutes ?? 0);
+  await upsertLeaderboardEntry(code, goal.visitorId, nickname, currentWeek?.verifiedSeconds ?? 0);
   return goal;
 }
 
@@ -436,7 +453,7 @@ export async function getSessionClips(goalId: string): Promise<SessionClip[]> {
   return (data ?? []).map((row) => ({
     sessionId: row.id,
     startedAt: row.started_at,
-    verifiedMinutes: Number(row.verified_minutes),
+    verifiedSeconds: Number(row.verified_minutes),
     clipUrl: admin.storage.from(SESSION_CLIPS_BUCKET).getPublicUrl(row.clip_path as string).data
       .publicUrl,
   }));
@@ -497,7 +514,7 @@ async function upsertLeaderboardEntry(
   roomCode: string,
   visitorId: string,
   nickname: string,
-  verifiedMinutesWeek: number
+  verifiedSecondsWeek: number
 ): Promise<void> {
   const admin = getSupabaseAdmin();
   if (admin) {
@@ -506,7 +523,7 @@ async function upsertLeaderboardEntry(
         room_code: roomCode,
         visitor_id: visitorId,
         nickname,
-        verified_minutes_week: verifiedMinutesWeek,
+        verified_minutes_week: verifiedSecondsWeek,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "room_code,visitor_id" }
@@ -518,24 +535,24 @@ async function upsertLeaderboardEntry(
   const existing = entries.find((e) => e.visitorId === visitorId);
   if (existing) {
     existing.nickname = nickname;
-    existing.verifiedMinutesWeek = verifiedMinutesWeek;
+    existing.verifiedSecondsWeek = verifiedSecondsWeek;
     existing.updatedAt = new Date().toISOString();
   } else {
     entries.push({
       roomCode,
       visitorId,
       nickname,
-      verifiedMinutesWeek,
+      verifiedSecondsWeek,
       updatedAt: new Date().toISOString(),
     });
   }
   memoryLeaderboard.set(roomCode, entries);
 }
 
-async function bumpLeaderboardMinutes(
+async function bumpLeaderboardSeconds(
   roomCode: string,
   visitorId: string,
-  additionalMinutes: number
+  additionalSeconds: number
 ): Promise<void> {
   const admin = getSupabaseAdmin();
   if (admin) {
@@ -546,7 +563,7 @@ async function bumpLeaderboardMinutes(
       .eq("visitor_id", visitorId)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    const newTotal = Number(data?.verified_minutes_week ?? 0) + additionalMinutes;
+    const newTotal = Number(data?.verified_minutes_week ?? 0) + additionalSeconds;
     const { error: upsertError } = await admin.from("leaderboard_entries").upsert(
       {
         room_code: roomCode,
@@ -562,7 +579,7 @@ async function bumpLeaderboardMinutes(
   const entries = memoryLeaderboard.get(roomCode) ?? [];
   const existing = entries.find((e) => e.visitorId === visitorId);
   if (existing) {
-    existing.verifiedMinutesWeek += additionalMinutes;
+    existing.verifiedSecondsWeek += additionalSeconds;
     existing.updatedAt = new Date().toISOString();
   }
   memoryLeaderboard.set(roomCode, entries);
@@ -581,12 +598,12 @@ export async function getLeaderboard(roomCode: string): Promise<LeaderboardEntry
       roomCode: r.room_code,
       visitorId: r.visitor_id,
       nickname: r.nickname,
-      verifiedMinutesWeek: Number(r.verified_minutes_week),
+      verifiedSecondsWeek: Number(r.verified_minutes_week),
       updatedAt: r.updated_at,
     }));
   }
   const entries = memoryLeaderboard.get(roomCode) ?? [];
-  return [...entries].sort((a, b) => b.verifiedMinutesWeek - a.verifiedMinutesWeek);
+  return [...entries].sort((a, b) => b.verifiedSecondsWeek - a.verifiedSecondsWeek);
 }
 
 export function usingSupabase(): boolean {
